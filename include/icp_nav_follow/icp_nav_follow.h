@@ -23,6 +23,7 @@
 // #include <visualization_msgs/Marker.h>
 #include <geometry_msgs/msg/wrench_stamped.hpp>
 #include <geometry_msgs/msg/twist.hpp>
+#include <geometry_msgs/msg/twist_stamped.hpp>
 #include <boost/circular_buffer.hpp>
 #include <iostream>
 #include <ament_index_cpp/get_package_share_directory.hpp>
@@ -84,12 +85,22 @@ class icp_nav_follow_class : public rclcpp::Node
         std::unique_ptr<tf2_ros::Buffer> _tf_buffer;
         geometry_msgs::msg::TransformStamped _t_master_slave;
         geometry_msgs::msg::TransformStamped _t_goal;
+        tf2::Stamped<tf2::Transform> _t_goal_transform;
         double _w_goal = 0;
         std::mutex _tf_mutex;
 
         std::thread _th_tf;
         std::thread _th_follow;
 
+
+        control_toolbox::PidROS*  _x_pid;
+        control_toolbox::PidROS*  _y_pid;
+        control_toolbox::PidROS*  _w_pid;
+
+        rclcpp::Rate* _rate_tf;
+        rclcpp::Rate* _rate_follow;
+
+        
 
     public:
 
@@ -99,6 +110,7 @@ class icp_nav_follow_class : public rclcpp::Node
         void tf_thread();
         void get_t_goal();
         void follow_thread();
+        void init_control();
        
 
         // bool save_pcl_call(icp_nav_follow::save_pcl::Request  &req, icp_nav_follow::save_pcl::Response &res);

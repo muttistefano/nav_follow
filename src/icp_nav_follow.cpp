@@ -273,14 +273,17 @@ void icp_nav_follow_class::tf_thread()
             _master_frame.c_str(), _slave_frame.c_str(), ex.what());
             return;
         }
+        // std::this_thread::sleep_for(50ms);
+        _rate_tf->sleep();
     }
 }
 
 void icp_nav_follow_class::get_t_goal()
 {
+    tf2::Stamped<tf2::Transform> stamped_transform;
     while(!_tf_buffer->canTransform(_master_frame, _slave_frame, tf2::TimePointZero, 2000ms) && rclcpp::ok()) {
       RCLCPP_INFO(
-                    get_logger(), "waiting 200 ms for %s->%s transform to become available",
+                    get_logger(), "waiting 2000 ms for %s->%s transform to become available",
                     _master_frame.c_str(), _slave_frame.c_str());
       std::this_thread::sleep_for(200ms);
     }
@@ -288,14 +291,16 @@ void icp_nav_follow_class::get_t_goal()
             _master_frame, _slave_frame,
             tf2::TimePointZero);
 
-    tf2::Quaternion quat_tf;
-    geometry_msgs::msg::Quaternion quat_msg = _t_goal.transform.rotation;
-    tf2::fromMsg(quat_msg, quat_tf);
-    double r{}, p{}, y{};
-    tf2::Matrix3x3 m(quat_tf);
-    m.getRPY(r, p, y);
+    tf2::fromMsg(_t_goal, _t_goal_transform);
 
-    _w_goal = y;
+    // tf2::Quaternion quat_tf;
+    // geometry_msgs::msg::Quaternion quat_msg = _t_goal.transform.rotation;
+    // tf2::fromMsg(quat_msg, quat_tf);
+    // double r{}, p{}, y{};
+    // tf2::Matrix3x3 m(quat_tf);
+    // m.getRPY(r, p, y);
+
+    // _w_goal = y;
 
     RCLCPP_INFO(get_logger(), "Initial transformation stored");
 }
@@ -303,30 +308,50 @@ void icp_nav_follow_class::get_t_goal()
 void icp_nav_follow_class::follow_thread()
 {
 
-    geometry_msgs::msg::TransformStamped _t_copy;
+    // geometry_msgs::msg::TransformStamped _t_copy;
+    tf2::Stamped<tf2::Transform> stamped_transform_now;
+    geometry_msgs::msg::TwistStamped vel_cmd;
     double x_err,y_err,w_err;
+    double x_cmd,y_cmd,w_cmd;
 
     while(rclcpp::ok())
     {
         {
             std::lock_guard<std::mutex> guard_tf(_tf_mutex);
-            _t_copy = _t_master_slave;
+            // _t_copy = _t_master_slave;
+            tf2::fromMsg(_t_master_slave, stamped_transform_now);
         }
-        x_err = _t_goal.transform.translation.x - _t_copy.transform.translation.x;
-        y_err = _t_goal.transform.translation.y - _t_copy.transform.translation.y;
-        
 
-        tf2::Quaternion quat_tf;
-        geometry_msgs::msg::Quaternion quat_msg = _t_copy.transform.rotation;
-        tf2::fromMsg(quat_msg, quat_tf);
+        tf2::Transform err =  stamped_transform_now.inverse() * _t_goal_transform;
+
+        x_err = err.getOrigin().getX();
+        y_err = err.getOrigin().getY();
+
+
+        // tf2::Quaternion quat_tf;
+        // geometry_msgs::msg::Quaternion quat_msg = _t_copy.transform.rotation;
+        // tf2::fromMsg(quat_msg, quat_tf);
         double r{}, p{}, y{};
-        tf2::Matrix3x3 m(quat_tf);
+        tf2::Matrix3x3 m(err.getRotation());
         m.getRPY(r, p, y);
+        w_err = y;
 
-        w_err = y - _w_goal;
 
-        RCLCPP_INFO_STREAM(get_logger(),x_err << " " << y_err << " " << w_err << " " << "\n");
-        std::this_thread::sleep_for(50ms);
+        RCLCPP_INFO_STREAM(get_logger(),"err: " << x_err << " " << y_err << " " << w_err << " " << "\n");
+        auto dt = rclcpp::Duration(50ms);
+        // auto dt = rclcpp::Duration(1, 0);
+        // x_cmd = _x_pid->computeCommand(x_err,200000);
+        x_cmd = _x_pid->computeCommand(x_err,dt);
+        y_cmd = _y_pid->computeCommand(y_err,dt);
+        w_cmd = _w_pid->computeCommand(w_err,dt);
+        
+        RCLCPP_INFO_STREAM(get_logger(),"cmd: " << x_cmd << " " << y_cmd << " " << w_cmd << " " << "\n");
+        // vel_cmd.twist.linear.x  = x_cmd;
+        // vel_cmd.twist.linear.y  = y_cmd;
+        // vel_cmd.twist.angular.z = w_cmd;
+        // vel_cmd.header.stamp    = this->now();
+        // std::this_thread::sleep_for(50ms);
+        _rate_follow->sleep();
     }
 }
 
@@ -372,27 +397,39 @@ Node("icp_nav_follow")
 
     _pcl_buffer = boost::circular_buffer<sensor_msgs::msg::PointCloud> (LASER_SCAN_FILTER_LENGTH);
 
-
-
-
-    // _sub         = _nh.subscribe<sensor_msgs::LaserScan>(_laser_scan_name, 1, &icp_nav_follow_class::LasCallback,this);
-
     _sub = this->create_subscription<sensor_msgs::msg::LaserScan>(
-      _laser_scan_name, 1, std::bind(&icp_nav_follow_class::LasCallback, this, std::placeholders::_1));
+    _laser_scan_name, 1, std::bind(&icp_nav_follow_class::LasCallback, this, std::placeholders::_1));
 
     _output_pub  = this->create_publisher<sensor_msgs::msg::PointCloud>("pcl_input", 1);
     _filt_pub    = this->create_publisher<sensor_msgs::msg::PointCloud>("pcl_reference", 1);
     _vis_pub     = this->create_publisher<geometry_msgs::msg::WrenchStamped>("wrench", 1);
     _cmd_vel     = this->create_publisher<geometry_msgs::msg::Twist>(_cmd_vel_topic, 1);
-    // _output_pub  = _nh.advertise<sensor_msgs::PointCloud>("pcl_input", 1);
-    // _filt_pub    = _nh.advertise<sensor_msgs::PointCloud>("pcl_reference", 1,true);
-    // _vis_pub     = _nh.advertise<geometry_msgs::WrenchStamped>( "wrench", 1 );
-    // _cmd_vel     = _nh.advertise<geometry_msgs::Twist>(_cmd_vel_topic,1);
+
+    _rate_tf     = new rclcpp::Rate(20);
+    _rate_follow = new rclcpp::Rate(20);
 
     this->get_t_goal();
     _th_tf     = std::thread(&icp_nav_follow_class::tf_thread, this);
-    _th_follow = std::thread(&icp_nav_follow_class::follow_thread, this);
+    // _th_follow = std::thread(&icp_nav_follow_class::follow_thread, this);
 
+}
+
+void icp_nav_follow_class::init_control()
+{
+    _x_pid = new control_toolbox::PidROS(this->shared_from_this(),"x_pid");
+    _y_pid = new control_toolbox::PidROS(this->shared_from_this(),"y_pid");
+    _w_pid = new control_toolbox::PidROS(this->shared_from_this(),"w_pid");
+
+
+
+    _x_pid->initPid();
+    _y_pid->initPid();
+    _w_pid->initPid();
+
+    // _x_pid_a->reset();
+    // _y_pid->reset();
+    // _w_pid->reset();
+    _th_follow = std::thread(&icp_nav_follow_class::follow_thread, this);
 }
 
 
@@ -402,6 +439,7 @@ int main(int argc, char **argv)
     rclcpp::init(argc, argv);
     rclcpp::executors::MultiThreadedExecutor executor;
     auto nodeState    = std::make_shared<icp_nav_follow_class>();
+    nodeState->init_control();
     executor.add_node(nodeState);
     executor.spin();
     rclcpp::shutdown();

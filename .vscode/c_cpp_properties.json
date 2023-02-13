@@ -28,7 +28,8 @@
                 "/opt/ros/rolling/include/tf2",
                 "/opt/ros/rolling/include/tf2_msgs",
                 "/opt/ros/rolling/include/tf2_geometry_msgs",
-                "/opt/ros/rolling/include"
+                "/opt/ros/rolling/include",
+                "/opt/ros/rolling/include/control_msgs"
             ],
             "defines": [],
             "compilerPath": "/usr/bin/gcc",
