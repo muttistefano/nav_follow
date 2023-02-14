@@ -2,22 +2,22 @@ icp_nav_follow:
   ros__parameters:
     x_pid:
       antiwindup: True
-      p: 0.5
-      i: 0.0
+      p: 2.0
+      i: 0.5
       d: 0.0
       i_clamp_max:  0.2
       i_clamp_min: -0.2
     y_pid:
       antiwindup: True
-      p: 0.5
-      i: 0.0
+      p: 2.0
+      i: 0.5
       d: 0.0
       i_clamp_max:  0.2
       i_clamp_min: -0.2
     w_pid:
       antiwindup: True
-      p: 0.5
-      i: 0.0
+      p: 2.0
+      i: 0.5
       d: 0.0
       i_clamp_max:  0.2
       i_clamp_min: -0.2

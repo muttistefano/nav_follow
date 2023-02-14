@@ -34,29 +34,25 @@
 #include <control_toolbox/pid_ros.hpp>
 
 
-constexpr int   LASER_FIXED_FILTER_LENGTH  = 10;
 constexpr int   LASER_SCAN_FILTER_LENGTH   = 3;
-constexpr double FILT_DIST                 = 3.0;
-constexpr double MIN_DIST                  = 0.3;
+// constexpr double FILT_DIST                 = 3.0;
+// constexpr double MIN_DIST                  = 0.3;
 
 class icp_nav_follow_class : public rclcpp::Node
 {
     private:
 
-        std::mutex   _Lock1;
-        std::string  _laser_scan_name,_frame_name,_cmd_vel_topic;
+        std::mutex   _lock_pcl_master,_lock_pcl_slave;
+        std::mutex   _tf_mutex;
+        std::string  _laser_scan_master,_laser_scan_slave,_frame_name,_cmd_vel_topic;
         std::string  _slave_frame,_master_frame;
         
 
-        double _timeout,_cone_min,_cone_max;
-    
-        double _xP,_yP,_zP;
-
         //ROS
 
-        rclcpp::Subscription<sensor_msgs::msg::LaserScan>::SharedPtr    _sub;
-        rclcpp::Publisher<sensor_msgs::msg::PointCloud>::SharedPtr      _output_pub;
-        rclcpp::Publisher<sensor_msgs::msg::PointCloud>::SharedPtr      _filt_pub;
+        rclcpp::Subscription<sensor_msgs::msg::LaserScan>::SharedPtr    _sub_master;
+        rclcpp::Subscription<sensor_msgs::msg::LaserScan>::SharedPtr    _sub_slave;
+
         rclcpp::Publisher<geometry_msgs::msg::WrenchStamped>::SharedPtr _vis_pub;
         rclcpp::Publisher<geometry_msgs::msg::Twist>::SharedPtr         _cmd_vel;
 
@@ -65,12 +61,13 @@ class icp_nav_follow_class : public rclcpp::Node
 
 
         //PCL
-        boost::circular_buffer<sensor_msgs::msg::PointCloud>  _pcl_buffer;//
+        boost::circular_buffer<sensor_msgs::msg::PointCloud>  _pcl_buffer_master;
+        boost::circular_buffer<sensor_msgs::msg::PointCloud>  _pcl_buffer_slave;
 
         pcl::IterativeClosestPoint<pcl::PointXYZ, pcl::PointXYZ> _icp;
 
-        sensor_msgs::msg::PointCloud _NewPcl;
-        sensor_msgs::msg::PointCloud _PclFilt;
+        sensor_msgs::msg::PointCloud _NewPcl_master;
+        sensor_msgs::msg::PointCloud _NewPcl_slave;
         sensor_msgs::msg::PointCloud _TPcl;
         geometry_msgs::msg::Point32  _pnt_filt;
 
@@ -86,11 +83,11 @@ class icp_nav_follow_class : public rclcpp::Node
         geometry_msgs::msg::TransformStamped _t_master_slave;
         geometry_msgs::msg::TransformStamped _t_goal;
         tf2::Stamped<tf2::Transform> _t_goal_transform;
-        double _w_goal = 0;
-        std::mutex _tf_mutex;
+        
 
         std::thread _th_tf;
         std::thread _th_follow;
+        std::thread _th_pcl;
 
 
         control_toolbox::PidROS*  _x_pid;
@@ -106,16 +103,13 @@ class icp_nav_follow_class : public rclcpp::Node
 
         explicit icp_nav_follow_class();
 
-        void LasCallback(const sensor_msgs::msg::LaserScan::ConstSharedPtr& msg);
+        void LasCallback_master(const sensor_msgs::msg::LaserScan::ConstSharedPtr& msg);
+        void LasCallback_slave(const sensor_msgs::msg::LaserScan::ConstSharedPtr& msg);
         void tf_thread();
         void get_t_goal();
         void follow_thread();
         void init_control();
-       
 
-        // bool save_pcl_call(icp_nav_follow::save_pcl::Request  &req, icp_nav_follow::save_pcl::Response &res);
-        // bool move_pcl_call(icp_nav_follow::move_to_pcl::Request  &req,icp_nav_follow::move_to_pcl::Response &res);
-        bool save_pcl_call();
         bool move_pcl_call();
 
 };

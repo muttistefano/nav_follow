@@ -11,218 +11,170 @@ inline bool exists_file (const std::string& name) {
     return ( access( name.c_str(), F_OK ) != -1 );
 }
 
-void icp_nav_follow_class::LasCallback(const sensor_msgs::msg::LaserScan::ConstSharedPtr& msg)
+void icp_nav_follow_class::LasCallback_master(const sensor_msgs::msg::LaserScan::ConstSharedPtr& msg)
 {
     geometry_msgs::msg::Point32 pnt;
     pnt.z = 0;
-    _Lock1.lock();
-    _NewPcl.points.clear();
+    std::lock_guard<std::mutex> guard_pcl_master(_lock_pcl_master);
+    _NewPcl_master.points.clear();
     for (size_t cnt = 0; cnt < msg->ranges.size (); cnt++)
     {
         double ang = msg->angle_min + msg->angle_increment * static_cast<double>(cnt);
-        if((msg->ranges[cnt] < FILT_DIST) && (msg->ranges[cnt] > MIN_DIST) && (ang > _cone_min) && (ang < _cone_max))
-        {
-            _pnt_filt.x =  (cos(ang) * msg->ranges[cnt]);
-            _pnt_filt.y =  (sin(ang) * msg->ranges[cnt]);
-        }
-        else
-        {
-            _pnt_filt.x = 0;
-            _pnt_filt.y = 0;
-            // continue;
-        }   
-
-        _NewPcl.points.push_back(_pnt_filt);
+        _pnt_filt.x =  (cos(ang) * msg->ranges[cnt]);
+        _pnt_filt.y =  (sin(ang) * msg->ranges[cnt]);
+        _NewPcl_master.points.push_back(_pnt_filt);
     }
    
-    _NewPcl.header.frame_id = _frame_name;
-    _NewPcl.header.stamp    = this->get_clock()->now();
+    _NewPcl_master.header.frame_id = _frame_name;
+    _NewPcl_master.header.stamp    = this->get_clock()->now();
 
-    _pcl_buffer.push_back(_NewPcl);
+    _pcl_buffer_master.push_back(std::move(_NewPcl_master));
+    RCLCPP_ERROR(this->get_logger(),"ASDASDMASTER");
 
-    _Lock1.unlock();
 }
 
-bool icp_nav_follow_class::save_pcl_call()
+void icp_nav_follow_class::LasCallback_slave(const sensor_msgs::msg::LaserScan::ConstSharedPtr& msg)
 {
-    RCLCPP_INFO(this->get_logger(),"pcl save \n");
-    const    pcl::PointCloud<pcl::PointXYZ>::Ptr       cloud_save (new pcl::PointCloud<pcl::PointXYZ>);
-    int* _Invalid_Data;
-
-    int cnt = 0;
-    while(cnt < LASER_FIXED_FILTER_LENGTH)
+    geometry_msgs::msg::Point32 pnt;
+    pnt.z = 0;
+    std::lock_guard<std::mutex> guard_pcl_slave(_lock_pcl_slave);
+    _NewPcl_slave.points.clear();
+    for (size_t cnt = 0; cnt < msg->ranges.size (); cnt++)
     {
-        sensor_msgs::msg::LaserScan::ConstSharedPtr LaserFixed;// = ros::topic::waitForMessage<sensor_msgs::LaserScan>(_laser_scan_name,_nh);
-        rclcpp::wait_for_message<sensor_msgs::msg::LaserScan::ConstSharedPtr>(LaserFixed,this->shared_from_this(),_laser_scan_name);
-        
-        int sizfx  = static_cast<int>(LaserFixed->ranges.size());
-        if(cnt==0)
-        {
-            cloud_save->width    = sizfx;
-            cloud_save->height   = 1;
-            cloud_save->is_dense = true;
-            cloud_save->points.clear();
-            cloud_save->points.resize (cloud_save->width * cloud_save->height);
-            _Invalid_Data = new int[sizfx]();
-        }
-        for (size_t i = 0; i < cloud_save->points.size (); ++i)
-        {
-            double ang = LaserFixed->angle_min + (LaserFixed->angle_increment * static_cast<double>(i));
-            if((LaserFixed->ranges[i] < FILT_DIST) && (LaserFixed->ranges[i] > MIN_DIST) && (ang > _cone_min) && (ang < _cone_max))
-            {
-                cloud_save->points[i].x = cloud_save->points[i].x + (cos(ang) * LaserFixed->ranges[i]);
-                cloud_save->points[i].y = cloud_save->points[i].y + (sin(ang) * LaserFixed->ranges[i]);
-                cloud_save->points[i].z = 0.0;
-            }
-            else
-            {
-                _Invalid_Data[i] = _Invalid_Data[i] + 1;
-            }
-
-        }
-        cnt++;
+        double ang = msg->angle_min + msg->angle_increment * static_cast<double>(cnt);
+        _pnt_filt.x =  (cos(ang) * msg->ranges[cnt]);
+        _pnt_filt.y =  (sin(ang) * msg->ranges[cnt]);
+        _NewPcl_slave.points.push_back(_pnt_filt);
     }
+   
+    _NewPcl_slave.header.frame_id = _frame_name;
+    _NewPcl_slave.header.stamp    = this->get_clock()->now();
 
-    RCLCPP_INFO_STREAM(this->get_logger()," points in ::  " << cloud_save->points.size());
+    _pcl_buffer_slave.push_back(std::move(_NewPcl_slave));
+    RCLCPP_ERROR(this->get_logger(),"ASDASDSLAVE");
 
-    for (size_t i = 0; i < cloud_save->points.size (); ++i)
-    {
-        if(_Invalid_Data[i] < 2)//WTF
-        {
-            cloud_save->points[i].x = cloud_save->points[i].x / (double(LASER_FIXED_FILTER_LENGTH) - double(_Invalid_Data[i]));
-            cloud_save->points[i].y = cloud_save->points[i].y / (double(LASER_FIXED_FILTER_LENGTH) - double(_Invalid_Data[i]));
-        }
-        else
-        {
-            cloud_save->points[i].x = 0.0;
-            cloud_save->points[i].y = 0.0;
-        }
-        
-    }
-
-    pcl::PointIndices::Ptr inliers(new pcl::PointIndices());
-    pcl::ExtractIndices<pcl::PointXYZ> extract;
-    for (int i = 0; i < (*cloud_save).size(); i++)
-    {
-        pcl::PointXYZ pt(cloud_save->points[i].x, cloud_save->points[i].y, cloud_save->points[i].z);
-        if ((pt.x==0.0) && (pt.y==0.0))
-        {
-            inliers->indices.push_back(i);
-        }
-    }
-    extract.setInputCloud(cloud_save);
-    extract.setIndices(inliers);
-    extract.setNegative(true);
-    extract.filter(*cloud_save);
-
-    std::string path_save = _path + "/data/fixed_0.pcd";
-    pcl::io::savePCDFileASCII (path_save, *cloud_save);
-
-    _PclFilt.points.clear();
-    geometry_msgs::msg::Point32 _pnt_filt;
-    for(const auto& pnt: cloud_save->points)
-    {
-        _pnt_filt.x = pnt.x;
-        _pnt_filt.y = pnt.y;
-        _pnt_filt.z = pnt.z;
-        _PclFilt.points.push_back(_pnt_filt);
-    }
-
-    _PclFilt.header.frame_id = _frame_name;
-    _PclFilt.header.stamp    = this->get_clock()->now();
-    _filt_pub->publish(_PclFilt);
-
-    // res.saved = true;
-    return true;
 }
+
 
 bool icp_nav_follow_class::move_pcl_call()
 {
+    const pcl::PointCloud<pcl::PointXYZ>::Ptr    _cloud_out (new pcl::PointCloud<pcl::PointXYZ>);
+    const pcl::PointCloud<pcl::PointXYZ>::Ptr    _cloud_in  (new pcl::PointCloud<pcl::PointXYZ>);
 
-    // _sub         = _nh.subscribe<sensor_msgs::LaserScan>(_laser_scan_name, 1, &icp_nav_follow_class::LasCallback,this);
+    pcl::PointIndices::Ptr inliers_master(new pcl::PointIndices());
+    pcl::PointIndices::Ptr inliers_slave(new pcl::PointIndices());
 
-    const pcl::PointCloud<pcl::PointXYZ>::Ptr       _cloud_out (new pcl::PointCloud<pcl::PointXYZ>);
-    pcl::PointCloud<pcl::PointXYZ>::Ptr             _cloud_in  (new pcl::PointCloud<pcl::PointXYZ>);
+    pcl::ExtractIndices<pcl::PointXYZ> extract_master;
+    pcl::ExtractIndices<pcl::PointXYZ> extract_slave;
 
-    rclcpp::Rate _rt(10);
-    std::string path_load = _path + "/data/fixed_0.pcd";
-    if (exists_file(path_load))
-    {
-        RCLCPP_INFO_STREAM(this->get_logger(),"pcl file found << " << path_load);
-        pcl::io::loadPCDFile<pcl::PointXYZ> (path_load, *_cloud_out);
-    }
-    else
-    {
-        RCLCPP_ERROR(this->get_logger(),"pcl file not found");
-        return false;
-    }
-    
-    _PclFilt.points.clear();
-    geometry_msgs::msg::Point32 _pnt_filt;
-    for(const auto& pnt: _cloud_out->points)
-    {
-        _pnt_filt.x = pnt.x;
-        _pnt_filt.y = pnt.y;
-        _pnt_filt.z = pnt.z;
-        _PclFilt.points.push_back(_pnt_filt);
-    }
-
-    _PclFilt.header.frame_id = _frame_name;
-    _PclFilt.header.stamp    = this->get_clock()->now();
-    _filt_pub->publish(_PclFilt);
+    rclcpp::Rate _rt(2);
 
     _icp.setMaximumIterations(15);
     
-    _icp.setInputSource (_cloud_in);
-    _icp.setInputTarget (_cloud_out);
+    // _icp.setInputSource (_cloud_in);
+    // _icp.setInputTarget (_cloud_out);
     
-    rclcpp::Time start_time = this->get_clock()->now();
-
     double outx;
     double outy;
     double outz;
-    
-    while(rclcpp::ok() && (this->get_clock()->now() - start_time).seconds() <= _timeout  )
+
+    while(rclcpp::ok())
     {
-        _Lock1.lock();
-        int siz = static_cast<int>(_NewPcl.points.size());
 
-        _output_pub->publish(_NewPcl);
-        
-        //PCL for _icp
-        _cloud_in->width    = siz;
-        _cloud_in->height   = 1;
-        _cloud_in->is_dense = true;
-        _cloud_in->points.clear();
-        _cloud_in->points.resize (_cloud_in->width * _cloud_in->height);
-        for (auto it=_pcl_buffer.begin(); it!=_pcl_buffer.end(); ++it)
-        {
-            for (size_t i = 0; i < _cloud_in->points.size (); ++i)
-            {
-                _cloud_in->points[i].x = _cloud_in->points[i].x +  it->points[i].x/double(LASER_SCAN_FILTER_LENGTH);
-                _cloud_in->points[i].y = _cloud_in->points[i].y +  it->points[i].y/double(LASER_SCAN_FILTER_LENGTH);
-                _cloud_in->points[i].z = 0.0;
-            }
-        }
-        
+        int siz = static_cast<int>(_NewPcl_master.points.size());
 
-        pcl::PointIndices::Ptr inliers(new pcl::PointIndices());
-        pcl::ExtractIndices<pcl::PointXYZ> extract;
-        for (int i = 0; i < (*_cloud_in).size(); i++)
-        {
-            pcl::PointXYZ pt(_cloud_in->points[i].x, _cloud_in->points[i].y, _cloud_in->points[i].z);
-            if ((pt.x==0.0) && (pt.y==0.0))
-            {
-                inliers->indices.push_back(i);
-            }
-        }
-        extract.setInputCloud(_cloud_in);
-        extract.setIndices(inliers);
-        extract.setNegative(true);
-        extract.filter(*_cloud_in);
+        std::future<void> slave_pcl = std::async(std::launch::async, 
+                                        [this, &_cloud_in,&inliers_slave,&extract_slave,&siz]() {
 
+                                        std::lock_guard<std::mutex> guard_pcl_slave(_lock_pcl_slave);
+
+                                        //PCL for _icp
+                                        _cloud_in->width    = siz;
+                                        _cloud_in->height   = 1;
+                                        _cloud_in->is_dense = true;
+                                        _cloud_in->points.clear();
+                                        _cloud_in->points.resize (_cloud_in->width * _cloud_in->height);
+                                        for (auto it=_pcl_buffer_slave.begin(); it!=_pcl_buffer_slave.end(); ++it)
+                                        {
+                                            for (size_t i = 0; i < _cloud_in->points.size (); ++i)
+                                            {
+                                                _cloud_in->points[i].x = _cloud_in->points[i].x +  it->points[i].x/double(LASER_SCAN_FILTER_LENGTH);
+                                                _cloud_in->points[i].y = _cloud_in->points[i].y +  it->points[i].y/double(LASER_SCAN_FILTER_LENGTH);
+                                                _cloud_in->points[i].z = 0.0;
+                                            }
+                                        }
+                                        
+
+                                        inliers_slave->indices.clear();
+                                    
+                                        for (int i = 0; i < (*_cloud_in).size(); i++)
+                                        {
+                                            pcl::PointXYZ pt(_cloud_in->points[i].x, _cloud_in->points[i].y, _cloud_in->points[i].z);
+                                            if ((pt.x==0.0) && (pt.y==0.0))
+                                            {
+                                                inliers_slave->indices.push_back(i);
+                                            }
+                                        }
+                                        extract_slave.setInputCloud(_cloud_in);
+                                        extract_slave.setIndices(inliers_slave);
+                                        extract_slave.setNegative(true);
+                                        extract_slave.filter(*_cloud_in);
+
+                                        }
+                                    );
+
+
+        std::future<void> master_pcl = std::async(std::launch::async, 
+                                        [this, &_cloud_out,&inliers_master,&extract_master,&siz]() {
+
+                                        std::lock_guard<std::mutex> guard_pcl_master(_lock_pcl_slave);
+
+                                        //PCL for _icp
+                                        _cloud_out->width    = siz;
+                                        _cloud_out->height   = 1;
+                                        _cloud_out->is_dense = true;
+                                        _cloud_out->points.clear();
+                                        _cloud_out->points.resize (_cloud_out->width * _cloud_out->height);
+                                        for (auto it=_pcl_buffer_master.begin(); it!=_pcl_buffer_master.end(); ++it)
+                                        {
+                                            for (size_t i = 0; i < _cloud_out->points.size (); ++i)
+                                            {
+                                                _cloud_out->points[i].x = _cloud_out->points[i].x +  it->points[i].x/double(LASER_SCAN_FILTER_LENGTH);
+                                                _cloud_out->points[i].y = _cloud_out->points[i].y +  it->points[i].y/double(LASER_SCAN_FILTER_LENGTH);
+                                                _cloud_out->points[i].z = 0.0;
+                                            }
+                                        }
+                                        
+
+                                        inliers_master->indices.clear();
+                                    
+                                        for (int i = 0; i < (*_cloud_out).size(); i++)
+                                        {
+                                            pcl::PointXYZ pt(_cloud_out->points[i].x, _cloud_out->points[i].y, _cloud_out->points[i].z);
+                                            if ((pt.x==0.0) && (pt.y==0.0))
+                                            {
+                                                inliers_master->indices.push_back(i);
+                                            }
+                                        }
+                                        extract_master.setInputCloud(_cloud_out);
+                                        extract_master.setIndices(inliers_master);
+                                        extract_master.setNegative(true);
+                                        extract_master.filter(*_cloud_out);
+
+                                        }
+                                    );
+
+
+        slave_pcl.get();
+        master_pcl.get();
+
+        std::cout << "asd1" << _cloud_in->points[10].x << " " << _cloud_in->points[9].x << " " << _cloud_in->points[11].x << "\n";
+        std::cout << "asd2" << _cloud_out->points[10].x << " " << _cloud_out->points[9].x << " " << _cloud_out->points[11].x << "\n";
+
+        _icp.setInputSource (_cloud_in);
+        _icp.setInputTarget (_cloud_out);
         _icp.align (*_cloud_in);
-        _Lock1.unlock();
+        
         _icp_out2 = _icp.getFinalTransformation().cast<double>() ;
         geometry_msgs::msg::WrenchStamped wrench_out;
         wrench_out.header.frame_id = _frame_name;
@@ -239,21 +191,22 @@ bool icp_nav_follow_class::move_pcl_call()
         wrench_out.wrench.torque.y = eul[1];
         wrench_out.wrench.torque.z = eul[2];
 
+        std::cout << "ICP " << _icp_out2(0,3) << " " << _icp_out2(1,3) << " " << eul[2] << "\n";
+
         _vis_pub->publish( wrench_out );
 
-        cmd_vel_dock.linear.x  = std::min(std::max(1.0 * _icp_out2(0,3), -0.05), 0.05);
-        cmd_vel_dock.linear.y  = std::min(std::max(1.0 * _icp_out2(1,3), -0.05), 0.05);
-        cmd_vel_dock.angular.z = std::min(std::max(1.0 *  eul[2]       , -0.05), 0.05);
+        // cmd_vel_dock.twist.linear.x  = std::min(std::max(1.0 * _icp_out2(0,3), -0.05), 0.05);
+        // cmd_vel_dock.twist.linear.y  = std::min(std::max(1.0 * _icp_out2(1,3), -0.05), 0.05);
+        // cmd_vel_dock.twist.angular.z = std::min(std::max(1.0 *  eul[2]       , -0.05), 0.05);
 
-        outx = _icp_out2(0,3); 
-        outy = _icp_out2(1,3); 
-        outz = eul[2]; 
+        // outx = _icp_out2(0,3); 
+        // outy = _icp_out2(1,3); 
+        // outz = eul[2]; 
 
-        _cmd_vel->publish(cmd_vel_dock);
+        // _cmd_vel->publish(cmd_vel_dock);
         
         _rt.sleep();
     }
-    // _sub.shutdown();
     // res.success = true;
     return true;
 }
@@ -293,24 +246,14 @@ void icp_nav_follow_class::get_t_goal()
 
     tf2::fromMsg(_t_goal, _t_goal_transform);
 
-    // tf2::Quaternion quat_tf;
-    // geometry_msgs::msg::Quaternion quat_msg = _t_goal.transform.rotation;
-    // tf2::fromMsg(quat_msg, quat_tf);
-    // double r{}, p{}, y{};
-    // tf2::Matrix3x3 m(quat_tf);
-    // m.getRPY(r, p, y);
-
-    // _w_goal = y;
-
     RCLCPP_INFO(get_logger(), "Initial transformation stored");
 }
 
 void icp_nav_follow_class::follow_thread()
 {
 
-    // geometry_msgs::msg::TransformStamped _t_copy;
     tf2::Stamped<tf2::Transform> stamped_transform_now;
-    geometry_msgs::msg::TwistStamped vel_cmd;
+    geometry_msgs::msg::Twist vel_cmd;
     double x_err,y_err,w_err;
     double x_cmd,y_cmd,w_cmd;
 
@@ -318,7 +261,6 @@ void icp_nav_follow_class::follow_thread()
     {
         {
             std::lock_guard<std::mutex> guard_tf(_tf_mutex);
-            // _t_copy = _t_master_slave;
             tf2::fromMsg(_t_master_slave, stamped_transform_now);
         }
 
@@ -327,10 +269,6 @@ void icp_nav_follow_class::follow_thread()
         x_err = err.getOrigin().getX();
         y_err = err.getOrigin().getY();
 
-
-        // tf2::Quaternion quat_tf;
-        // geometry_msgs::msg::Quaternion quat_msg = _t_copy.transform.rotation;
-        // tf2::fromMsg(quat_msg, quat_tf);
         double r{}, p{}, y{};
         tf2::Matrix3x3 m(err.getRotation());
         m.getRPY(r, p, y);
@@ -339,18 +277,15 @@ void icp_nav_follow_class::follow_thread()
 
         RCLCPP_INFO_STREAM(get_logger(),"err: " << x_err << " " << y_err << " " << w_err << " " << "\n");
         auto dt = rclcpp::Duration(50ms);
-        // auto dt = rclcpp::Duration(1, 0);
-        // x_cmd = _x_pid->computeCommand(x_err,200000);
         x_cmd = _x_pid->computeCommand(x_err,dt);
         y_cmd = _y_pid->computeCommand(y_err,dt);
         w_cmd = _w_pid->computeCommand(w_err,dt);
         
         RCLCPP_INFO_STREAM(get_logger(),"cmd: " << x_cmd << " " << y_cmd << " " << w_cmd << " " << "\n");
-        // vel_cmd.twist.linear.x  = x_cmd;
-        // vel_cmd.twist.linear.y  = y_cmd;
-        // vel_cmd.twist.angular.z = w_cmd;
-        // vel_cmd.header.stamp    = this->now();
-        // std::this_thread::sleep_for(50ms);
+        vel_cmd.linear.x  = x_cmd;
+        vel_cmd.linear.y  = y_cmd;
+        vel_cmd.angular.z = w_cmd;
+        _cmd_vel->publish(vel_cmd);
         _rate_follow->sleep();
     }
 }
@@ -359,58 +294,43 @@ icp_nav_follow_class::icp_nav_follow_class():
 Node("icp_nav_follow")
 {
 
-//   auto node = parent_node.lock();
-
-//   if (!node->has_parameter("goal_blackboard_id")) {
-    // node->declare_parameter("goal_blackboard_id", std::string("goal"));
-
-    this->declare_parameter("laser_scan_topic", rclcpp::ParameterValue(std::string("")));
+    this->declare_parameter("laser_scan_master", rclcpp::ParameterValue(std::string("")));
+    this->declare_parameter("laser_scan_slave", rclcpp::ParameterValue(std::string("")));
     this->declare_parameter("frame_name"      , rclcpp::ParameterValue(std::string("")));
     this->declare_parameter("cmd_vel_topic"   , rclcpp::ParameterValue(std::string("")));
     this->declare_parameter("master_frame"    , rclcpp::ParameterValue(std::string("")));
     this->declare_parameter("slave_frame"     , rclcpp::ParameterValue(std::string("")));
 
-    this->declare_parameter("timeout",  rclcpp::ParameterValue(10.0));
-    this->declare_parameter("cone_min", rclcpp::ParameterValue(1.57));
-    this->declare_parameter("cone_max", rclcpp::ParameterValue(4.71));
-    this->declare_parameter("xpid",     rclcpp::ParameterValue(1.0));
-    this->declare_parameter("ypid",     rclcpp::ParameterValue(1.0));
-    this->declare_parameter("zpid",     rclcpp::ParameterValue(1.0));
 
-
-    _laser_scan_name = this->get_parameter("laser_scan_topic").get_parameter_value().get<std::string>();
+    _laser_scan_master = this->get_parameter("laser_scan_master").get_parameter_value().get<std::string>();
+    _laser_scan_slave = this->get_parameter("laser_scan_slave").get_parameter_value().get<std::string>();
     _frame_name      = this->get_parameter("frame_name").get_parameter_value().get<std::string>();
     _cmd_vel_topic   = this->get_parameter("cmd_vel_topic").get_parameter_value().get<std::string>();
     
     _master_frame    = this->get_parameter("master_frame").get_parameter_value().get<std::string>();
     _slave_frame     = this->get_parameter("slave_frame").get_parameter_value().get<std::string>();
 
-    _timeout         = this->get_parameter("timeout").get_parameter_value().get<double>();
-    _cone_min        = this->get_parameter("cone_min").get_parameter_value().get<double>();
-    _cone_max        = this->get_parameter("cone_max").get_parameter_value().get<double>();
-    _xP              = this->get_parameter("xpid").get_parameter_value().get<double>();
-    _yP              = this->get_parameter("ypid").get_parameter_value().get<double>();
-    _zP              = this->get_parameter("zpid").get_parameter_value().get<double>();
 
     _tf_buffer = std::make_unique<tf2_ros::Buffer>(this->get_clock());
     _tf_listener = std::make_shared<tf2_ros::TransformListener>(*_tf_buffer);
 
-    _pcl_buffer = boost::circular_buffer<sensor_msgs::msg::PointCloud> (LASER_SCAN_FILTER_LENGTH);
+    _pcl_buffer_master = boost::circular_buffer<sensor_msgs::msg::PointCloud> (LASER_SCAN_FILTER_LENGTH);
+    _pcl_buffer_slave  = boost::circular_buffer<sensor_msgs::msg::PointCloud> (LASER_SCAN_FILTER_LENGTH);
 
-    _sub = this->create_subscription<sensor_msgs::msg::LaserScan>(
-    _laser_scan_name, 1, std::bind(&icp_nav_follow_class::LasCallback, this, std::placeholders::_1));
+    _sub_master = this->create_subscription<sensor_msgs::msg::LaserScan>(
+    _laser_scan_master, 1, std::bind(&icp_nav_follow_class::LasCallback_master, this, std::placeholders::_1));
 
-    _output_pub  = this->create_publisher<sensor_msgs::msg::PointCloud>("pcl_input", 1);
-    _filt_pub    = this->create_publisher<sensor_msgs::msg::PointCloud>("pcl_reference", 1);
+    _sub_slave = this->create_subscription<sensor_msgs::msg::LaserScan>(
+    _laser_scan_slave, 1, std::bind(&icp_nav_follow_class::LasCallback_slave, this, std::placeholders::_1));
+
     _vis_pub     = this->create_publisher<geometry_msgs::msg::WrenchStamped>("wrench", 1);
     _cmd_vel     = this->create_publisher<geometry_msgs::msg::Twist>(_cmd_vel_topic, 1);
 
     _rate_tf     = new rclcpp::Rate(20);
     _rate_follow = new rclcpp::Rate(20);
 
-    this->get_t_goal();
-    _th_tf     = std::thread(&icp_nav_follow_class::tf_thread, this);
-    // _th_follow = std::thread(&icp_nav_follow_class::follow_thread, this);
+    // this->get_t_goal();
+    // _th_tf     = std::thread(&icp_nav_follow_class::tf_thread, this);
 
 }
 
@@ -420,8 +340,6 @@ void icp_nav_follow_class::init_control()
     _y_pid = new control_toolbox::PidROS(this->shared_from_this(),"y_pid");
     _w_pid = new control_toolbox::PidROS(this->shared_from_this(),"w_pid");
 
-
-
     _x_pid->initPid();
     _y_pid->initPid();
     _w_pid->initPid();
@@ -429,7 +347,9 @@ void icp_nav_follow_class::init_control()
     // _x_pid_a->reset();
     // _y_pid->reset();
     // _w_pid->reset();
-    _th_follow = std::thread(&icp_nav_follow_class::follow_thread, this);
+
+    // _th_follow = std::thread(&icp_nav_follow_class::follow_thread, this);
+    // _th_pcl    = std::thread(&icp_nav_follow_class::move_pcl_call, this);
 }
 
 
