@@ -1,27 +1,33 @@
 rosbag2_bagfile_information:
   version: 6
-  storage_identifier: sqlite3
+  storage_identifier: mcap
   duration:
-    nanoseconds: 24588407248
+    nanoseconds: 22638589652
   starting_time:
-    nanoseconds_since_epoch: 1676393994983117216
-  message_count: 1227
+    nanoseconds_since_epoch: 1676476616346795644
+  message_count: 1349
   topics_with_message_count:
     - topic_metadata:
         name: /azrael/scan
         type: sensor_msgs/msg/LaserScan
         serialization_format: cdr
-        offered_qos_profiles: "- history: 3\n  depth: 0\n  reliability: 1\n  durability: 1\n  deadline:\n    sec: 9223372036\n    nsec: 854775807\n  lifespan:\n    sec: 9223372036\n    nsec: 854775807\n  liveliness: 1\n  liveliness_lease_duration:\n    sec: 9223372036\n    nsec: 854775807\n  avoid_ros_namespace_conventions: false"
-      message_count: 1227
+        offered_qos_profiles: "- history: 3\n  depth: 0\n  reliability: 2\n  durability: 2\n  deadline:\n    sec: 9223372036\n    nsec: 854775807\n  lifespan:\n    sec: 9223372036\n    nsec: 854775807\n  liveliness: 1\n  liveliness_lease_duration:\n    sec: 9223372036\n    nsec: 854775807\n  avoid_ros_namespace_conventions: false"
+      message_count: 1126
+    - topic_metadata:
+        name: /omron/scan
+        type: sensor_msgs/msg/LaserScan
+        serialization_format: cdr
+        offered_qos_profiles: "- history: 3\n  depth: 0\n  reliability: 2\n  durability: 2\n  deadline:\n    sec: 9223372036\n    nsec: 854775807\n  lifespan:\n    sec: 9223372036\n    nsec: 854775807\n  liveliness: 1\n  liveliness_lease_duration:\n    sec: 9223372036\n    nsec: 854775807\n  avoid_ros_namespace_conventions: false"
+      message_count: 223
   compression_format: ""
   compression_mode: ""
   relative_file_paths:
-    - bag_pcl_0.db3
+    - bag_pcl_0.mcap
   files:
-    - path: bag_pcl_0.db3
+    - path: bag_pcl_0.mcap
       starting_time:
-        nanoseconds_since_epoch: 1676393994983117216
+        nanoseconds_since_epoch: 1676476616346795644
       duration:
-        nanoseconds: 24588407248
-      message_count: 1227
+        nanoseconds: 22638589652
+      message_count: 1349
   custom_data: ~

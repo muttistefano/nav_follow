@@ -11,8 +11,11 @@ find_package(std_msgs REQUIRED)
 find_package(sensor_msgs REQUIRED)
 find_package(geometry_msgs REQUIRED)
 find_package(tf2_ros REQUIRED)
+find_package(tf2_eigen REQUIRED)
 find_package(tf2_geometry_msgs REQUIRED)
 find_package(control_toolbox REQUIRED)
+find_package(pcl_conversions REQUIRED)
+
 
 add_compile_options(-std=c++17)
 
@@ -31,7 +34,9 @@ set(dependencies
   sensor_msgs
   tf2_geometry_msgs
   control_toolbox
+  tf2_eigen
   tf2_ros
+  pcl_conversions
 )
 
 add_executable(${PROJECT_NAME}_node src/icp_nav_follow.cpp)

@@ -20,16 +20,25 @@ void icp_nav_follow_class::LasCallback_master(const sensor_msgs::msg::LaserScan:
     for (size_t cnt = 0; cnt < msg->ranges.size (); cnt++)
     {
         double ang = msg->angle_min + msg->angle_increment * static_cast<double>(cnt);
-        _pnt_filt.x =  (cos(ang) * msg->ranges[cnt]);
-        _pnt_filt.y =  (sin(ang) * msg->ranges[cnt]);
-        _NewPcl_master.points.push_back(_pnt_filt);
+        if ((ang < -1.57) || (ang > 1.57))
+        {
+            _pnt_filt_master.x =  0.0;
+            _pnt_filt_master.y =  0.0;
+        }
+        else
+        {
+            _pnt_filt_master.x =  (cos(ang) * msg->ranges[cnt]);
+            _pnt_filt_master.y =  (sin(ang) * msg->ranges[cnt]);
+        }
+        _NewPcl_master.points.push_back(_pnt_filt_master);
     }
    
     _NewPcl_master.header.frame_id = _frame_name;
     _NewPcl_master.header.stamp    = this->get_clock()->now();
 
-    _pcl_buffer_master.push_back(std::move(_NewPcl_master));
-    RCLCPP_ERROR(this->get_logger(),"ASDASDMASTER");
+    // _pcl_buffer_master.push_back(std::move(_NewPcl_master));
+    _pcl_buffer_master.push_back(_NewPcl_master);
+    // RCLCPP_ERROR(this->get_logger(),"ASDASDMASTER");
 
 }
 
@@ -42,22 +51,34 @@ void icp_nav_follow_class::LasCallback_slave(const sensor_msgs::msg::LaserScan::
     for (size_t cnt = 0; cnt < msg->ranges.size (); cnt++)
     {
         double ang = msg->angle_min + msg->angle_increment * static_cast<double>(cnt);
-        _pnt_filt.x =  (cos(ang) * msg->ranges[cnt]);
-        _pnt_filt.y =  (sin(ang) * msg->ranges[cnt]);
-        _NewPcl_slave.points.push_back(_pnt_filt);
+        if ((ang < -1.57) || (ang > 1.57))
+        {
+            _pnt_filt_slave.x =  0.0;
+            _pnt_filt_slave.y =  0.0;
+        }
+        else
+        {
+            _pnt_filt_slave.x =  (cos(ang) * msg->ranges[cnt]);
+            _pnt_filt_slave.y =  (sin(ang) * msg->ranges[cnt]);
+        }
+        _NewPcl_slave.points.push_back(_pnt_filt_slave);
     }
    
     _NewPcl_slave.header.frame_id = _frame_name;
     _NewPcl_slave.header.stamp    = this->get_clock()->now();
 
-    _pcl_buffer_slave.push_back(std::move(_NewPcl_slave));
-    RCLCPP_ERROR(this->get_logger(),"ASDASDSLAVE");
+    // _pcl_buffer_slave.push_back(std::move(_NewPcl_slave));
+    _pcl_buffer_slave.push_back(_NewPcl_slave);
+    // RCLCPP_ERROR(this->get_logger(),"ASDASDSLAVE");
 
 }
 
 
 bool icp_nav_follow_class::move_pcl_call()
 {
+
+    std::this_thread::sleep_for(2000ms);
+    RCLCPP_ERROR(this->get_logger(),"PCL Started");
     const pcl::PointCloud<pcl::PointXYZ>::Ptr    _cloud_out (new pcl::PointCloud<pcl::PointXYZ>);
     const pcl::PointCloud<pcl::PointXYZ>::Ptr    _cloud_in  (new pcl::PointCloud<pcl::PointXYZ>);
 
@@ -67,10 +88,12 @@ bool icp_nav_follow_class::move_pcl_call()
     pcl::ExtractIndices<pcl::PointXYZ> extract_master;
     pcl::ExtractIndices<pcl::PointXYZ> extract_slave;
 
-    rclcpp::Rate _rt(2);
+    rclcpp::Rate _rt(20);
 
-    _icp.setMaximumIterations(15);
-    
+    _icp.setMaximumIterations (50);
+    _icp.setTransformationEpsilon (1e-8);
+    // _icp.setEuclideanFitnessEpsilon (1);
+    // _icp.setRANSACOutlierRejectionThreshold (1.5);
     // _icp.setInputSource (_cloud_in);
     // _icp.setInputTarget (_cloud_out);
     
@@ -78,26 +101,33 @@ bool icp_nav_follow_class::move_pcl_call()
     double outy;
     double outz;
 
+    RCLCPP_ERROR_STREAM(this->get_logger(),"_pcl_buffer_slave size : "  << _pcl_buffer_slave.size());
+    RCLCPP_ERROR_STREAM(this->get_logger(),"_pcl_buffer_master size : " << _pcl_buffer_master.size());
+
     while(rclcpp::ok())
     {
 
-        int siz = static_cast<int>(_NewPcl_master.points.size());
-
         std::future<void> slave_pcl = std::async(std::launch::async, 
-                                        [this, &_cloud_in,&inliers_slave,&extract_slave,&siz]() {
+                                        [this, &_cloud_in,&inliers_slave,&extract_slave]() {
 
                                         std::lock_guard<std::mutex> guard_pcl_slave(_lock_pcl_slave);
-
+                                        int siz = static_cast<int>(this->_NewPcl_slave.points.size());
                                         //PCL for _icp
                                         _cloud_in->width    = siz;
                                         _cloud_in->height   = 1;
                                         _cloud_in->is_dense = true;
                                         _cloud_in->points.clear();
+                                        std::set<size_t> indexes;
                                         _cloud_in->points.resize (_cloud_in->width * _cloud_in->height);
                                         for (auto it=_pcl_buffer_slave.begin(); it!=_pcl_buffer_slave.end(); ++it)
                                         {
                                             for (size_t i = 0; i < _cloud_in->points.size (); ++i)
                                             {
+                                                if ((it->points[i].x == 0.0) || (it->points[i].y == 0.0))
+                                                {
+                                                    indexes.insert(i);
+                                                    continue;
+                                                }
                                                 _cloud_in->points[i].x = _cloud_in->points[i].x +  it->points[i].x/double(LASER_SCAN_FILTER_LENGTH);
                                                 _cloud_in->points[i].y = _cloud_in->points[i].y +  it->points[i].y/double(LASER_SCAN_FILTER_LENGTH);
                                                 _cloud_in->points[i].z = 0.0;
@@ -107,28 +137,24 @@ bool icp_nav_follow_class::move_pcl_call()
 
                                         inliers_slave->indices.clear();
                                     
-                                        for (int i = 0; i < (*_cloud_in).size(); i++)
-                                        {
-                                            pcl::PointXYZ pt(_cloud_in->points[i].x, _cloud_in->points[i].y, _cloud_in->points[i].z);
-                                            if ((pt.x==0.0) && (pt.y==0.0))
-                                            {
-                                                inliers_slave->indices.push_back(i);
-                                            }
+                                        for (auto it = indexes.begin(); it != indexes.end(); ++it) {
+                                            inliers_slave->indices.push_back(*it);
                                         }
                                         extract_slave.setInputCloud(_cloud_in);
                                         extract_slave.setIndices(inliers_slave);
                                         extract_slave.setNegative(true);
                                         extract_slave.filter(*_cloud_in);
-
                                         }
                                     );
 
 
         std::future<void> master_pcl = std::async(std::launch::async, 
-                                        [this, &_cloud_out,&inliers_master,&extract_master,&siz]() {
+                                        [this, &_cloud_out,&inliers_master,&extract_master]() {
 
                                         std::lock_guard<std::mutex> guard_pcl_master(_lock_pcl_slave);
-
+                                        int siz = static_cast<int>(this->_NewPcl_master.points.size());
+                                        inliers_master->indices.clear();
+                                        std::set<size_t> indexes;
                                         //PCL for _icp
                                         _cloud_out->width    = siz;
                                         _cloud_out->height   = 1;
@@ -139,28 +165,25 @@ bool icp_nav_follow_class::move_pcl_call()
                                         {
                                             for (size_t i = 0; i < _cloud_out->points.size (); ++i)
                                             {
+                                                if ((it->points[i].x == 0.0) || (it->points[i].y == 0.0))
+                                                {
+                                                    indexes.insert(i);
+                                                    continue;
+                                                }
                                                 _cloud_out->points[i].x = _cloud_out->points[i].x +  it->points[i].x/double(LASER_SCAN_FILTER_LENGTH);
                                                 _cloud_out->points[i].y = _cloud_out->points[i].y +  it->points[i].y/double(LASER_SCAN_FILTER_LENGTH);
                                                 _cloud_out->points[i].z = 0.0;
                                             }
                                         }
                                         
-
-                                        inliers_master->indices.clear();
-                                    
-                                        for (int i = 0; i < (*_cloud_out).size(); i++)
-                                        {
-                                            pcl::PointXYZ pt(_cloud_out->points[i].x, _cloud_out->points[i].y, _cloud_out->points[i].z);
-                                            if ((pt.x==0.0) && (pt.y==0.0))
-                                            {
-                                                inliers_master->indices.push_back(i);
-                                            }
+                                        for (auto it = indexes.begin(); it != indexes.end(); ++it) {
+                                            inliers_master->indices.push_back(*it);
                                         }
+
                                         extract_master.setInputCloud(_cloud_out);
                                         extract_master.setIndices(inliers_master);
                                         extract_master.setNegative(true);
                                         extract_master.filter(*_cloud_out);
-
                                         }
                                     );
 
@@ -168,12 +191,31 @@ bool icp_nav_follow_class::move_pcl_call()
         slave_pcl.get();
         master_pcl.get();
 
-        std::cout << "asd1" << _cloud_in->points[10].x << " " << _cloud_in->points[9].x << " " << _cloud_in->points[11].x << "\n";
-        std::cout << "asd2" << _cloud_out->points[10].x << " " << _cloud_out->points[9].x << " " << _cloud_out->points[11].x << "\n";
+        // std::cout << "in " << _cloud_in->points.size() << std::flush << "\n"; 
+        // std::cout << "out " << _cloud_out->points.size() << std::flush <<"\n"; 
 
-        _icp.setInputSource (_cloud_in);
-        _icp.setInputTarget (_cloud_out);
-        _icp.align (*_cloud_in);
+        sensor_msgs::msg::PointCloud2::SharedPtr pc2_msg_master = std::make_shared<sensor_msgs::msg::PointCloud2>();
+        sensor_msgs::msg::PointCloud2::SharedPtr pc2_msg_slave  = std::make_shared<sensor_msgs::msg::PointCloud2>();
+
+        pcl::toROSMsg(*_cloud_in, *pc2_msg_slave);
+        pcl::toROSMsg(*_cloud_out, *pc2_msg_master);
+        pc2_msg_slave->header.frame_id = "azrael/laser";
+        pc2_msg_master->header.frame_id = "omron/base_link";
+
+        pc2_msg_master->header.stamp = now();
+        pc2_msg_slave->header.stamp = now();
+        
+        _pcl_master_pub->publish(*pc2_msg_master);
+        _pcl_slave_pub->publish(*pc2_msg_slave);
+
+        Eigen::Matrix4f guess = tf2::transformToEigen(_t_master_slave).matrix().cast<float>();
+
+        // _icp.setInputSource (_cloud_in);
+        // _icp.setInputTarget (_cloud_out);
+        _icp.setInputSource (_cloud_out);
+        _icp.setInputTarget (_cloud_in);
+        // _icp.align (*_cloud_in,guess);
+        _icp.align (*_cloud_out,guess);
         
         _icp_out2 = _icp.getFinalTransformation().cast<double>() ;
         geometry_msgs::msg::WrenchStamped wrench_out;
@@ -191,7 +233,7 @@ bool icp_nav_follow_class::move_pcl_call()
         wrench_out.wrench.torque.y = eul[1];
         wrench_out.wrench.torque.z = eul[2];
 
-        std::cout << "ICP " << _icp_out2(0,3) << " " << _icp_out2(1,3) << " " << eul[2] << "\n";
+        RCLCPP_INFO_STREAM(this->get_logger(),"ICP " << _icp_out2(0,3) << " " << _icp_out2(1,3) << " " << eul[2]);
 
         _vis_pub->publish( wrench_out );
 
@@ -318,13 +360,16 @@ Node("icp_nav_follow")
     _pcl_buffer_slave  = boost::circular_buffer<sensor_msgs::msg::PointCloud> (LASER_SCAN_FILTER_LENGTH);
 
     _sub_master = this->create_subscription<sensor_msgs::msg::LaserScan>(
-    _laser_scan_master, 1, std::bind(&icp_nav_follow_class::LasCallback_master, this, std::placeholders::_1));
+    _laser_scan_master, rclcpp::SensorDataQoS(), std::bind(&icp_nav_follow_class::LasCallback_master, this, std::placeholders::_1));
 
     _sub_slave = this->create_subscription<sensor_msgs::msg::LaserScan>(
-    _laser_scan_slave, 1, std::bind(&icp_nav_follow_class::LasCallback_slave, this, std::placeholders::_1));
+    _laser_scan_slave, rclcpp::SensorDataQoS(), std::bind(&icp_nav_follow_class::LasCallback_slave, this, std::placeholders::_1));
 
     _vis_pub     = this->create_publisher<geometry_msgs::msg::WrenchStamped>("wrench", 1);
     _cmd_vel     = this->create_publisher<geometry_msgs::msg::Twist>(_cmd_vel_topic, 1);
+
+    _pcl_master_pub = this->create_publisher<sensor_msgs::msg::PointCloud2>("master_pcl", 1);
+    _pcl_slave_pub  = this->create_publisher<sensor_msgs::msg::PointCloud2>("slave_pcl" , 1);
 
     _rate_tf     = new rclcpp::Rate(20);
     _rate_follow = new rclcpp::Rate(20);
@@ -349,7 +394,7 @@ void icp_nav_follow_class::init_control()
     // _w_pid->reset();
 
     // _th_follow = std::thread(&icp_nav_follow_class::follow_thread, this);
-    // _th_pcl    = std::thread(&icp_nav_follow_class::move_pcl_call, this);
+    _th_pcl    = std::thread(&icp_nav_follow_class::move_pcl_call, this);
 }
 
 

@@ -32,6 +32,8 @@
 #include "tf2_ros/buffer.h"
 #include <tf2_geometry_msgs/tf2_geometry_msgs.hpp>
 #include <control_toolbox/pid_ros.hpp>
+#include <pcl_conversions/pcl_conversions.h>
+#include <tf2_eigen/tf2_eigen.hpp>
 
 
 constexpr int   LASER_SCAN_FILTER_LENGTH   = 3;
@@ -55,6 +57,9 @@ class icp_nav_follow_class : public rclcpp::Node
 
         rclcpp::Publisher<geometry_msgs::msg::WrenchStamped>::SharedPtr _vis_pub;
         rclcpp::Publisher<geometry_msgs::msg::Twist>::SharedPtr         _cmd_vel;
+        
+        rclcpp::Publisher<sensor_msgs::msg::PointCloud2>::SharedPtr         _pcl_master_pub;
+        rclcpp::Publisher<sensor_msgs::msg::PointCloud2>::SharedPtr         _pcl_slave_pub;
 
 
         geometry_msgs::msg::Twist cmd_vel_dock;
@@ -69,7 +74,8 @@ class icp_nav_follow_class : public rclcpp::Node
         sensor_msgs::msg::PointCloud _NewPcl_master;
         sensor_msgs::msg::PointCloud _NewPcl_slave;
         sensor_msgs::msg::PointCloud _TPcl;
-        geometry_msgs::msg::Point32  _pnt_filt;
+        geometry_msgs::msg::Point32  _pnt_filt_slave;
+        geometry_msgs::msg::Point32  _pnt_filt_master;
 
         sensor_msgs::msg::LaserScan::ConstSharedPtr _LaserFixed;//
         
