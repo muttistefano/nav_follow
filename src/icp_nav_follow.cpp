@@ -36,9 +36,8 @@ void icp_nav_follow_class::LasCallback_master(const sensor_msgs::msg::LaserScan:
     _NewPcl_master.header.frame_id = _frame_name;
     _NewPcl_master.header.stamp    = this->get_clock()->now();
 
-    // _pcl_buffer_master.push_back(std::move(_NewPcl_master));
     _pcl_buffer_master.push_back(_NewPcl_master);
-    // RCLCPP_ERROR(this->get_logger(),"ASDASDMASTER");
+    // RCLCPP_ERROR_STREAM(this->get_logger(),"ASDASDMASTER" << _NewPcl_master.points.size() );
 
 }
 
@@ -67,18 +66,30 @@ void icp_nav_follow_class::LasCallback_slave(const sensor_msgs::msg::LaserScan::
     _NewPcl_slave.header.frame_id = _frame_name;
     _NewPcl_slave.header.stamp    = this->get_clock()->now();
 
-    // _pcl_buffer_slave.push_back(std::move(_NewPcl_slave));
     _pcl_buffer_slave.push_back(_NewPcl_slave);
-    // RCLCPP_ERROR(this->get_logger(),"ASDASDSLAVE");
+    // RCLCPP_ERROR_STREAM(this->get_logger(),"ASDASDSLAVE"  << _NewPcl_slave.points.size());
 
 }
 
-
-bool icp_nav_follow_class::move_pcl_call()
+void icp_nav_follow_class::current_pcl_thread()
 {
 
-    std::this_thread::sleep_for(2000ms);
-    RCLCPP_ERROR(this->get_logger(),"PCL Started");
+    while(rclcpp::ok())
+    {
+        bool done_wait = false;
+        {
+            std::lock_guard<std::mutex> guard_pcl_master(_lock_pcl_master);
+            std::lock_guard<std::mutex> guard_pcl_slave(_lock_pcl_slave);
+            done_wait = (_pcl_buffer_slave.size() == LASER_SCAN_FILTER_LENGTH) && (_pcl_buffer_master.size() == LASER_SCAN_FILTER_LENGTH);
+        }
+        if (done_wait){break;}
+        std::this_thread::sleep_for(200ms);
+    }
+
+    RCLCPP_INFO_STREAM(this->get_logger(),"_pcl_buffer_slave size : "  << _pcl_buffer_slave.size());
+    RCLCPP_INFO_STREAM(this->get_logger(),"_pcl_buffer_master size : " << _pcl_buffer_master.size());
+
+    
     const pcl::PointCloud<pcl::PointXYZ>::Ptr    _cloud_out (new pcl::PointCloud<pcl::PointXYZ>);
     const pcl::PointCloud<pcl::PointXYZ>::Ptr    _cloud_in  (new pcl::PointCloud<pcl::PointXYZ>);
 
@@ -90,35 +101,39 @@ bool icp_nav_follow_class::move_pcl_call()
 
     rclcpp::Rate _rt(20);
 
-    _icp.setMaximumIterations (50);
-    _icp.setTransformationEpsilon (1e-8);
-    // _icp.setEuclideanFitnessEpsilon (1);
-    // _icp.setRANSACOutlierRejectionThreshold (1.5);
-    // _icp.setInputSource (_cloud_in);
-    // _icp.setInputTarget (_cloud_out);
+    {
+        std::lock_guard<std::mutex> guard_pcl_slave(_lock_pcl_slave);
+        siz_s = static_cast<int>(this->_NewPcl_slave.points.size());
+    }
+
+    _cloud_in->width    = siz_s;
+    _cloud_in->height   = 1;
+    _cloud_in->is_dense = true;
+    _cloud_in->points.resize (_cloud_in->width * _cloud_in->height);
+
+    {
+        std::lock_guard<std::mutex> guard_pcl_master(_lock_pcl_master);
+        siz_m = static_cast<int>(this->_NewPcl_master.points.size());
+    }
+
+    _cloud_out->width    = siz_m;
+    _cloud_out->height   = 1;
+    _cloud_out->is_dense = true;
+    _cloud_out->points.resize (_cloud_out->width * _cloud_out->height);
     
     double outx;
     double outy;
     double outz;
-
-    RCLCPP_ERROR_STREAM(this->get_logger(),"_pcl_buffer_slave size : "  << _pcl_buffer_slave.size());
-    RCLCPP_ERROR_STREAM(this->get_logger(),"_pcl_buffer_master size : " << _pcl_buffer_master.size());
 
     while(rclcpp::ok())
     {
 
         std::future<void> slave_pcl = std::async(std::launch::async, 
                                         [this, &_cloud_in,&inliers_slave,&extract_slave]() {
-
-                                        std::lock_guard<std::mutex> guard_pcl_slave(_lock_pcl_slave);
-                                        int siz = static_cast<int>(this->_NewPcl_slave.points.size());
-                                        //PCL for _icp
-                                        _cloud_in->width    = siz;
-                                        _cloud_in->height   = 1;
-                                        _cloud_in->is_dense = true;
-                                        _cloud_in->points.clear();
+                                        // auto start = std::chrono::high_resolution_clock::now();
+                                        std::lock_guard<std::mutex> guard_pcl_slave(this->_lock_pcl_slave);
+                                        std::fill(_cloud_in->points.begin(), _cloud_in->points.end(), pcl::PointXYZ());
                                         std::set<size_t> indexes;
-                                        _cloud_in->points.resize (_cloud_in->width * _cloud_in->height);
                                         for (auto it=_pcl_buffer_slave.begin(); it!=_pcl_buffer_slave.end(); ++it)
                                         {
                                             for (size_t i = 0; i < _cloud_in->points.size (); ++i)
@@ -143,7 +158,12 @@ bool icp_nav_follow_class::move_pcl_call()
                                         extract_slave.setInputCloud(_cloud_in);
                                         extract_slave.setIndices(inliers_slave);
                                         extract_slave.setNegative(true);
+                                        extract_slave.setUserFilterValue(0.0);
+                                        extract_slave.setKeepOrganized(true);
                                         extract_slave.filter(*_cloud_in);
+                                        // auto stop = std::chrono::high_resolution_clock::now();
+                                        // auto duration = std::chrono::duration_cast<std::chrono::microseconds>(stop - start);
+                                        // RCLCPP_INFO_STREAM(this->get_logger(),"time: " << duration.count());
                                         }
                                     );
 
@@ -151,16 +171,9 @@ bool icp_nav_follow_class::move_pcl_call()
         std::future<void> master_pcl = std::async(std::launch::async, 
                                         [this, &_cloud_out,&inliers_master,&extract_master]() {
 
-                                        std::lock_guard<std::mutex> guard_pcl_master(_lock_pcl_slave);
-                                        int siz = static_cast<int>(this->_NewPcl_master.points.size());
-                                        inliers_master->indices.clear();
+                                        std::lock_guard<std::mutex> guard_pcl_master(this->_lock_pcl_master);
+                                        std::fill(_cloud_out->points.begin(), _cloud_out->points.end(), pcl::PointXYZ());
                                         std::set<size_t> indexes;
-                                        //PCL for _icp
-                                        _cloud_out->width    = siz;
-                                        _cloud_out->height   = 1;
-                                        _cloud_out->is_dense = true;
-                                        _cloud_out->points.clear();
-                                        _cloud_out->points.resize (_cloud_out->width * _cloud_out->height);
                                         for (auto it=_pcl_buffer_master.begin(); it!=_pcl_buffer_master.end(); ++it)
                                         {
                                             for (size_t i = 0; i < _cloud_out->points.size (); ++i)
@@ -176,6 +189,7 @@ bool icp_nav_follow_class::move_pcl_call()
                                             }
                                         }
                                         
+                                        inliers_master->indices.clear();
                                         for (auto it = indexes.begin(); it != indexes.end(); ++it) {
                                             inliers_master->indices.push_back(*it);
                                         }
@@ -183,6 +197,8 @@ bool icp_nav_follow_class::move_pcl_call()
                                         extract_master.setInputCloud(_cloud_out);
                                         extract_master.setIndices(inliers_master);
                                         extract_master.setNegative(true);
+                                        extract_master.setUserFilterValue(0.0);
+                                        extract_master.setKeepOrganized(true);
                                         extract_master.filter(*_cloud_out);
                                         }
                                     );
@@ -208,24 +224,37 @@ bool icp_nav_follow_class::move_pcl_call()
         _pcl_master_pub->publish(*pc2_msg_master);
         _pcl_slave_pub->publish(*pc2_msg_slave);
 
-        Eigen::Matrix4f guess = tf2::transformToEigen(_t_master_slave).matrix().cast<float>();
+        Eigen::Matrix4f guess;
+        {
+            std::lock_guard<std::mutex> guard_tf(_tf_mutex);
+            _guess_tf = tf2::transformToEigen(_t_master_slave).matrix().cast<float>();
 
-        // _icp.setInputSource (_cloud_in);
-        // _icp.setInputTarget (_cloud_out);
+        }
+        // Eigen::Matrix4f guess = tf2::transformToEigen(_t_master_slave).matrix().cast<float>();
+
+        _icp.setMaximumIterations (_icp_iterations);
+        _icp.setTransformationEpsilon (_icp_TransformationEpsilon);
+        _icp.setEuclideanFitnessEpsilon (_icp_EuclideanFitnessEpsilon);
+        _icp.setRANSACOutlierRejectionThreshold (_icp_RANSACOutlierRejectionThreshold);
+        _icp.setMaxCorrespondenceDistance(_icp_MaxCorrespondenceDistance);
+
         _icp.setInputSource (_cloud_out);
         _icp.setInputTarget (_cloud_in);
-        // _icp.align (*_cloud_in,guess);
-        _icp.align (*_cloud_out,guess);
-        
-        _icp_out2 = _icp.getFinalTransformation().cast<double>() ;
+        {
+            std::lock_guard<std::mutex> guard_icp(_icp_mutex);
+            _icp.align (*_cloud_out,_guess_tf);
+            _icp_current = _icp.getFinalTransformation().cast<double>() ;
+        }
+
+
         geometry_msgs::msg::WrenchStamped wrench_out;
         wrench_out.header.frame_id = _frame_name;
         wrench_out.header.stamp    = this->get_clock()->now();
-        wrench_out.wrench.force.x  = _icp_out2(0,3);
-        wrench_out.wrench.force.y  = _icp_out2(1,3);
-        wrench_out.wrench.force.z  = _icp_out2(2,3);
+        wrench_out.wrench.force.x  = _icp_current(0,3);
+        wrench_out.wrench.force.y  = _icp_current(1,3);
+        wrench_out.wrench.force.z  = _icp_current(2,3);
         Eigen::Affine3d b;
-        b.matrix() = _icp_out2;
+        b.matrix() = _icp_current;
         auto qua = Eigen::Quaterniond(b.linear());
         
         Eigen::Vector3d eul = qua.toRotationMatrix().eulerAngles(0, 1, 2);
@@ -233,27 +262,43 @@ bool icp_nav_follow_class::move_pcl_call()
         wrench_out.wrench.torque.y = eul[1];
         wrench_out.wrench.torque.z = eul[2];
 
-        RCLCPP_INFO_STREAM(this->get_logger(),"ICP " << _icp_out2(0,3) << " " << _icp_out2(1,3) << " " << eul[2]);
+        RCLCPP_INFO_STREAM_THROTTLE(this->get_logger(),*this->get_clock(),1000,"ICP " << _icp_current(0,3) << " " << _icp_current(1,3) << " " << eul[2]);
 
         _vis_pub->publish( wrench_out );
 
-        // cmd_vel_dock.twist.linear.x  = std::min(std::max(1.0 * _icp_out2(0,3), -0.05), 0.05);
-        // cmd_vel_dock.twist.linear.y  = std::min(std::max(1.0 * _icp_out2(1,3), -0.05), 0.05);
-        // cmd_vel_dock.twist.angular.z = std::min(std::max(1.0 *  eul[2]       , -0.05), 0.05);
+        if(_icp_controlling)
+        {
+            double x_err,y_err,w_err;
+            double x_cmd,y_cmd,w_cmd;
+            geometry_msgs::msg::Twist vel_cmd;
 
-        // outx = _icp_out2(0,3); 
-        // outy = _icp_out2(1,3); 
-        // outz = eul[2]; 
+            Eigen::Matrix4d err =  _icp_current.inverse() * _icp_goal;
 
-        // _cmd_vel->publish(cmd_vel_dock);
+            x_err = err(0,3);
+            y_err = err(1,3);
+
+
+            Eigen::Vector3d ea = err.block<3,3>(0,0).eulerAngles(2, 1, 0);
+            // w_err = y;
+
+
+            auto dt = rclcpp::Duration(50ms);
+            x_cmd = _x_pid_icp->computeCommand(x_err,dt);
+            y_cmd = _y_pid_icp->computeCommand(y_err,dt);
+            w_cmd = _w_pid_icp->computeCommand(w_err,dt);
+            
+            RCLCPP_INFO_STREAM(get_logger(),"cmd: " << x_cmd << " " << y_cmd << " " << w_cmd << " " << "\n");
+            vel_cmd.linear.x  = x_cmd;
+            vel_cmd.linear.y  = y_cmd;
+            vel_cmd.angular.z = w_cmd;
+            _cmd_vel->publish(vel_cmd);
+        }
         
         _rt.sleep();
     }
-    // res.success = true;
-    return true;
 }
 
-void icp_nav_follow_class::tf_thread()
+void icp_nav_follow_class::current_tf_thread()
 {
     while(rclcpp::ok())
     {
@@ -273,8 +318,9 @@ void icp_nav_follow_class::tf_thread()
     }
 }
 
-void icp_nav_follow_class::get_t_goal()
+void icp_nav_follow_class::get_tf_goal()
 {
+    //TODO spin_once ??
     tf2::Stamped<tf2::Transform> stamped_transform;
     while(!_tf_buffer->canTransform(_master_frame, _slave_frame, tf2::TimePointZero, 2000ms) && rclcpp::ok()) {
       RCLCPP_INFO(
@@ -291,7 +337,7 @@ void icp_nav_follow_class::get_t_goal()
     RCLCPP_INFO(get_logger(), "Initial transformation stored");
 }
 
-void icp_nav_follow_class::follow_thread()
+void icp_nav_follow_class::tf_follow_thread()
 {
 
     tf2::Stamped<tf2::Transform> stamped_transform_now;
@@ -318,6 +364,7 @@ void icp_nav_follow_class::follow_thread()
 
 
         RCLCPP_INFO_STREAM(get_logger(),"err: " << x_err << " " << y_err << " " << w_err << " " << "\n");
+        //TODO rate to Duration ?
         auto dt = rclcpp::Duration(50ms);
         x_cmd = _x_pid->computeCommand(x_err,dt);
         y_cmd = _y_pid->computeCommand(y_err,dt);
@@ -332,26 +379,85 @@ void icp_nav_follow_class::follow_thread()
     }
 }
 
+void icp_nav_follow_class::init_control()
+{
+    _x_pid = new control_toolbox::PidROS(this->shared_from_this(),"x_pid");
+    _y_pid = new control_toolbox::PidROS(this->shared_from_this(),"y_pid");
+    _w_pid = new control_toolbox::PidROS(this->shared_from_this(),"w_pid");
+
+    _x_pid->initPid();
+    _y_pid->initPid();
+    _w_pid->initPid();
+
+    _x_pid_icp = new control_toolbox::PidROS(this->shared_from_this(),"x_pid_icp");
+    _y_pid_icp = new control_toolbox::PidROS(this->shared_from_this(),"y_pid_icp");
+    _w_pid_icp = new control_toolbox::PidROS(this->shared_from_this(),"w_pid_icp");
+    _x_pid_icp->initPid();
+    _y_pid_icp->initPid();
+    _w_pid_icp->initPid();
+
+    // this->get_tf_goal();
+    // _th_follow = std::thread(&icp_nav_follow_class::tf_follow_thread, this);
+
+    _th_pcl    = std::thread(&icp_nav_follow_class::current_pcl_thread, this);
+}
+
+void icp_nav_follow_class::save_icp_goal(const std::shared_ptr<std_srvs::srv::Trigger::Request> request,
+          std::shared_ptr<std_srvs::srv::Trigger::Response>      response)
+{
+    std::lock_guard<std::mutex> guard_icp(_icp_mutex);
+    _icp_goal = _icp_current;
+    response->success = true;
+    RCLCPP_WARN(this->get_logger(),"icp control goal saved");
+}
+
+void icp_nav_follow_class::start_icp_goal(const std::shared_ptr<std_srvs::srv::Trigger::Request> request,
+          std::shared_ptr<std_srvs::srv::Trigger::Response>      response)
+{
+    _icp_controlling = true;
+    response->success = true;
+    RCLCPP_WARN(this->get_logger(),"Starting icp control");
+}
+
+void icp_nav_follow_class::stop_icp_goal(const std::shared_ptr<std_srvs::srv::Trigger::Request> request,
+          std::shared_ptr<std_srvs::srv::Trigger::Response>      response)
+{
+    _icp_controlling = false;
+    response->success = true;
+    RCLCPP_WARN(this->get_logger(),"Stopping icp control");
+}
+
 icp_nav_follow_class::icp_nav_follow_class():
 Node("icp_nav_follow")
 {
 
-    this->declare_parameter("laser_scan_master", rclcpp::ParameterValue(std::string("")));
-    this->declare_parameter("laser_scan_slave", rclcpp::ParameterValue(std::string("")));
-    this->declare_parameter("frame_name"      , rclcpp::ParameterValue(std::string("")));
-    this->declare_parameter("cmd_vel_topic"   , rclcpp::ParameterValue(std::string("")));
-    this->declare_parameter("master_frame"    , rclcpp::ParameterValue(std::string("")));
-    this->declare_parameter("slave_frame"     , rclcpp::ParameterValue(std::string("")));
-
+    this->declare_parameter("laser_scan_master"                       , rclcpp::ParameterValue(std::string("")));
+    this->declare_parameter("laser_scan_slave"                        , rclcpp::ParameterValue(std::string("")));
+    this->declare_parameter("frame_name"                              , rclcpp::ParameterValue(std::string("")));
+    this->declare_parameter("cmd_vel_topic"                           , rclcpp::ParameterValue(std::string("")));
+    this->declare_parameter("master_frame"                            , rclcpp::ParameterValue(std::string("")));
+    this->declare_parameter("slave_frame"                             , rclcpp::ParameterValue(std::string("")));
+    this->declare_parameter("icp_iterations"                          , rclcpp::ParameterValue(0));
+    this->declare_parameter("icp_TransformationEpsilon"               , rclcpp::ParameterValue(0.0));
+    this->declare_parameter("icp_EuclideanFitnessEpsilon"             , rclcpp::ParameterValue(0.0));
+    this->declare_parameter("icp_RANSACOutlierRejectionThreshold"     , rclcpp::ParameterValue(0.0));
+    this->declare_parameter("icp_MaxCorrespondenceDistance"           , rclcpp::ParameterValue(0.0));
 
     _laser_scan_master = this->get_parameter("laser_scan_master").get_parameter_value().get<std::string>();
-    _laser_scan_slave = this->get_parameter("laser_scan_slave").get_parameter_value().get<std::string>();
-    _frame_name      = this->get_parameter("frame_name").get_parameter_value().get<std::string>();
-    _cmd_vel_topic   = this->get_parameter("cmd_vel_topic").get_parameter_value().get<std::string>();
+    _laser_scan_slave  = this->get_parameter("laser_scan_slave").get_parameter_value().get<std::string>();
+    _frame_name        = this->get_parameter("frame_name").get_parameter_value().get<std::string>();
+    _cmd_vel_topic     = this->get_parameter("cmd_vel_topic").get_parameter_value().get<std::string>();
     
-    _master_frame    = this->get_parameter("master_frame").get_parameter_value().get<std::string>();
-    _slave_frame     = this->get_parameter("slave_frame").get_parameter_value().get<std::string>();
+    _master_frame      = this->get_parameter("master_frame").get_parameter_value().get<std::string>();
+    _slave_frame       = this->get_parameter("slave_frame").get_parameter_value().get<std::string>();
 
+    _icp_iterations                      = this->get_parameter("icp_iterations"                     ).get_parameter_value().get<int>();
+    _icp_TransformationEpsilon           = this->get_parameter("icp_TransformationEpsilon"          ).get_parameter_value().get<double>();
+    _icp_EuclideanFitnessEpsilon         = this->get_parameter("icp_EuclideanFitnessEpsilon"        ).get_parameter_value().get<double>();
+    _icp_RANSACOutlierRejectionThreshold = this->get_parameter("icp_RANSACOutlierRejectionThreshold").get_parameter_value().get<double>();
+    _icp_MaxCorrespondenceDistance       = this->get_parameter("icp_MaxCorrespondenceDistance"      ).get_parameter_value().get<double>();
+
+    dyn_params_handler_ = this->add_on_set_parameters_callback(std::bind(&icp_nav_follow_class::dynamicParametersCallback, this, std::placeholders::_1));
 
     _tf_buffer = std::make_unique<tf2_ros::Buffer>(this->get_clock());
     _tf_listener = std::make_shared<tf2_ros::TransformListener>(*_tf_buffer);
@@ -374,35 +480,57 @@ Node("icp_nav_follow")
     _rate_tf     = new rclcpp::Rate(20);
     _rate_follow = new rclcpp::Rate(20);
 
-    // this->get_t_goal();
-    // _th_tf     = std::thread(&icp_nav_follow_class::tf_thread, this);
+    // _th_tf     = std::thread(&icp_nav_follow_class::current_tf_thread, this);
+
+    _save_icp_goal_srv  = this->create_service<std_srvs::srv::Trigger>("save_icp_goal" , std::bind(&icp_nav_follow_class::save_icp_goal , this, std::placeholders::_1,std::placeholders::_2));
+    _start_icp_goal_srv = this->create_service<std_srvs::srv::Trigger>("start_icp_goal", std::bind(&icp_nav_follow_class::start_icp_goal, this, std::placeholders::_1,std::placeholders::_2));
+    _stop_icp_goal_srv  = this->create_service<std_srvs::srv::Trigger>("stop_icp_goal" , std::bind(&icp_nav_follow_class::stop_icp_goal , this, std::placeholders::_1,std::placeholders::_2));
 
 }
 
-void icp_nav_follow_class::init_control()
+rcl_interfaces::msg::SetParametersResult
+icp_nav_follow_class::dynamicParametersCallback(std::vector<rclcpp::Parameter> parameters)
 {
-    _x_pid = new control_toolbox::PidROS(this->shared_from_this(),"x_pid");
-    _y_pid = new control_toolbox::PidROS(this->shared_from_this(),"y_pid");
-    _w_pid = new control_toolbox::PidROS(this->shared_from_this(),"w_pid");
+    rcl_interfaces::msg::SetParametersResult result;
 
-    _x_pid->initPid();
-    _y_pid->initPid();
-    _w_pid->initPid();
+    for (auto parameter : parameters) {
 
-    // _x_pid_a->reset();
-    // _y_pid->reset();
-    // _w_pid->reset();
+        const auto & type = parameter.get_type();
+        const auto & name = parameter.get_name();
 
-    // _th_follow = std::thread(&icp_nav_follow_class::follow_thread, this);
-    _th_pcl    = std::thread(&icp_nav_follow_class::move_pcl_call, this);
+        if (type == rcl_interfaces::msg::ParameterType::PARAMETER_DOUBLE) {
+        if (name == "icp_TransformationEpsilon") {
+            RCLCPP_INFO_STREAM(this->get_logger(),"UPDATING icp_TransformationEpsilon" << parameter.as_double());
+            _icp_TransformationEpsilon = parameter.as_double();
+        } else if (name == "icp_EuclideanFitnessEpsilon") {
+            RCLCPP_INFO_STREAM(this->get_logger(),"UPDATING icp_EuclideanFitnessEpsilon" << parameter.as_double());
+            _icp_EuclideanFitnessEpsilon = parameter.as_double();
+        } else if (name == "icp_RANSACOutlierRejectionThreshold") {
+            RCLCPP_INFO_STREAM(this->get_logger(),"UPDATING icp_RANSACOutlierRejectionThreshold" << parameter.as_double());
+            _icp_RANSACOutlierRejectionThreshold = parameter.as_double();
+        } else if (name == "icp_MaxCorrespondenceDistance") {
+            RCLCPP_INFO_STREAM(this->get_logger(),"UPDATING icp_MaxCorrespondenceDistance" << parameter.as_double());
+            _icp_MaxCorrespondenceDistance = parameter.as_double();
+        }
+        }
+        if (type == rcl_interfaces::msg::ParameterType::PARAMETER_INTEGER) {
+        if (name == "icp_iterations") {
+            RCLCPP_INFO_STREAM(this->get_logger(),"UPDATING icp_iterations" << parameter.as_int());
+            _icp_iterations = parameter.as_int();
+        } 
+        }
+    }
+    result.successful = true;
+    return result;
+
 }
-
 
 int main(int argc, char **argv)
 {
     
     rclcpp::init(argc, argv);
     rclcpp::executors::MultiThreadedExecutor executor;
+    // rclcpp::executors::StaticSingleThreadedExecutor executor;
     auto nodeState    = std::make_shared<icp_nav_follow_class>();
     nodeState->init_control();
     executor.add_node(nodeState);

@@ -34,6 +34,7 @@
 #include <control_toolbox/pid_ros.hpp>
 #include <pcl_conversions/pcl_conversions.h>
 #include <tf2_eigen/tf2_eigen.hpp>
+#include <std_srvs/srv/trigger.hpp>
 
 
 constexpr int   LASER_SCAN_FILTER_LENGTH   = 3;
@@ -45,9 +46,19 @@ class icp_nav_follow_class : public rclcpp::Node
     private:
 
         std::mutex   _lock_pcl_master,_lock_pcl_slave;
-        std::mutex   _tf_mutex;
+        std::mutex   _tf_mutex, _icp_mutex;
+
+        int     _icp_iterations;
+        double  _icp_TransformationEpsilon;
+        double  _icp_EuclideanFitnessEpsilon;
+        double  _icp_RANSACOutlierRejectionThreshold;
+        double  _icp_MaxCorrespondenceDistance;
+
+        //PARAMS
         std::string  _laser_scan_master,_laser_scan_slave,_frame_name,_cmd_vel_topic;
         std::string  _slave_frame,_master_frame;
+        rclcpp::node_interfaces::OnSetParametersCallbackHandle::SharedPtr dyn_params_handler_;
+        rcl_interfaces::msg::SetParametersResult dynamicParametersCallback(std::vector<rclcpp::Parameter> parameters);
         
 
         //ROS
@@ -61,6 +72,9 @@ class icp_nav_follow_class : public rclcpp::Node
         rclcpp::Publisher<sensor_msgs::msg::PointCloud2>::SharedPtr         _pcl_master_pub;
         rclcpp::Publisher<sensor_msgs::msg::PointCloud2>::SharedPtr         _pcl_slave_pub;
 
+        rclcpp::Service<std_srvs::srv::Trigger>::SharedPtr _save_icp_goal_srv;
+        rclcpp::Service<std_srvs::srv::Trigger>::SharedPtr _start_icp_goal_srv;
+        rclcpp::Service<std_srvs::srv::Trigger>::SharedPtr _stop_icp_goal_srv;
 
         geometry_msgs::msg::Twist cmd_vel_dock;
 
@@ -77,13 +91,15 @@ class icp_nav_follow_class : public rclcpp::Node
         geometry_msgs::msg::Point32  _pnt_filt_slave;
         geometry_msgs::msg::Point32  _pnt_filt_master;
 
-        sensor_msgs::msg::LaserScan::ConstSharedPtr _LaserFixed;//
-        
-        Eigen::Matrix4d _icp_out  = Eigen::Matrix4d::Identity ();
-        Eigen::Matrix4d _icp_out2 = Eigen::Matrix4d::Identity ();
+        Eigen::Matrix4d _icp_current = Eigen::Matrix4d::Identity ();
+        Eigen::Matrix4d _icp_goal = Eigen::Matrix4d::Identity ();
+        Eigen::Matrix4f _guess_tf;
         
         std::string _path = ament_index_cpp::get_package_share_directory("icp_nav_follow");
+        int siz_s,siz_m;
+        bool _icp_controlling = false;
 
+        //TF
         std::shared_ptr<tf2_ros::TransformListener> _tf_listener{nullptr};
         std::unique_ptr<tf2_ros::Buffer> _tf_buffer;
         geometry_msgs::msg::TransformStamped _t_master_slave;
@@ -96,10 +112,14 @@ class icp_nav_follow_class : public rclcpp::Node
         std::thread _th_pcl;
 
 
+        //PID
         control_toolbox::PidROS*  _x_pid;
         control_toolbox::PidROS*  _y_pid;
         control_toolbox::PidROS*  _w_pid;
-
+        control_toolbox::PidROS*  _x_pid_icp;
+        control_toolbox::PidROS*  _y_pid_icp;
+        control_toolbox::PidROS*  _w_pid_icp;
+        //RATE
         rclcpp::Rate* _rate_tf;
         rclcpp::Rate* _rate_follow;
 
@@ -111,11 +131,17 @@ class icp_nav_follow_class : public rclcpp::Node
 
         void LasCallback_master(const sensor_msgs::msg::LaserScan::ConstSharedPtr& msg);
         void LasCallback_slave(const sensor_msgs::msg::LaserScan::ConstSharedPtr& msg);
-        void tf_thread();
-        void get_t_goal();
-        void follow_thread();
+        void current_tf_thread();
+        void get_tf_goal();
+        void tf_follow_thread();
         void init_control();
+        void current_pcl_thread();
 
-        bool move_pcl_call();
+        void save_icp_goal(const std::shared_ptr<std_srvs::srv::Trigger::Request> request,
+          std::shared_ptr<std_srvs::srv::Trigger::Response>      response);
+        void start_icp_goal(const std::shared_ptr<std_srvs::srv::Trigger::Request> request,
+          std::shared_ptr<std_srvs::srv::Trigger::Response>      response);
+        void stop_icp_goal(const std::shared_ptr<std_srvs::srv::Trigger::Request> request,
+          std::shared_ptr<std_srvs::srv::Trigger::Response>      response);
 
 };

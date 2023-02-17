@@ -33,7 +33,8 @@
                 "/opt/ros/rolling/include/message_filters",
                 "/opt/ros/rolling/include/pcl_msgs",
                 "/opt/ros/rolling/include/tf2_eigen",
-                "/opt/ros/rolling/include/realtime_tools"
+                "/opt/ros/rolling/include/realtime_tools",
+                "/opt/ros/rolling/include/std_srvs"
             ],
             "defines": [],
             "compilerPath": "/usr/bin/gcc",

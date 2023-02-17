@@ -15,6 +15,7 @@ find_package(tf2_eigen REQUIRED)
 find_package(tf2_geometry_msgs REQUIRED)
 find_package(control_toolbox REQUIRED)
 find_package(pcl_conversions REQUIRED)
+find_package(std_srvs REQUIRED)
 
 
 add_compile_options(-std=c++17)
@@ -37,6 +38,7 @@ set(dependencies
   tf2_eigen
   tf2_ros
   pcl_conversions
+  std_srvs
 )
 
 add_executable(${PROJECT_NAME}_node src/icp_nav_follow.cpp)
