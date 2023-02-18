@@ -113,15 +113,15 @@ class icp_nav_follow_class : public rclcpp::Node
 
 
         //PID
-        control_toolbox::PidROS*  _x_pid;
-        control_toolbox::PidROS*  _y_pid;
-        control_toolbox::PidROS*  _w_pid;
-        control_toolbox::PidROS*  _x_pid_icp;
-        control_toolbox::PidROS*  _y_pid_icp;
-        control_toolbox::PidROS*  _w_pid_icp;
+        std::unique_ptr<control_toolbox::PidROS>  _x_pid;
+        std::unique_ptr<control_toolbox::PidROS>  _y_pid;
+        std::unique_ptr<control_toolbox::PidROS>  _w_pid;
+        std::unique_ptr<control_toolbox::PidROS>  _x_pid_icp;
+        std::unique_ptr<control_toolbox::PidROS>  _y_pid_icp;
+        std::unique_ptr<control_toolbox::PidROS>  _w_pid_icp;
         //RATE
-        rclcpp::Rate* _rate_tf;
-        rclcpp::Rate* _rate_follow;
+        std::unique_ptr<rclcpp::Rate> _rate_tf;
+        std::unique_ptr<rclcpp::Rate> _rate_follow;
 
         
 

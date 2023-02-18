@@ -15,7 +15,7 @@ void icp_nav_follow_class::LasCallback_master(const sensor_msgs::msg::LaserScan:
 {
     geometry_msgs::msg::Point32 pnt;
     pnt.z = 0;
-    std::lock_guard<std::mutex> guard_pcl_master(_lock_pcl_master);
+    std::scoped_lock<std::mutex> guard_pcl_master(_lock_pcl_master);
     _NewPcl_master.points.clear();
     for (size_t cnt = 0; cnt < msg->ranges.size (); cnt++)
     {
@@ -45,7 +45,7 @@ void icp_nav_follow_class::LasCallback_slave(const sensor_msgs::msg::LaserScan::
 {
     geometry_msgs::msg::Point32 pnt;
     pnt.z = 0;
-    std::lock_guard<std::mutex> guard_pcl_slave(_lock_pcl_slave);
+    std::scoped_lock<std::mutex> guard_pcl_slave(_lock_pcl_slave);
     _NewPcl_slave.points.clear();
     for (size_t cnt = 0; cnt < msg->ranges.size (); cnt++)
     {
@@ -78,8 +78,7 @@ void icp_nav_follow_class::current_pcl_thread()
     {
         bool done_wait = false;
         {
-            std::lock_guard<std::mutex> guard_pcl_master(_lock_pcl_master);
-            std::lock_guard<std::mutex> guard_pcl_slave(_lock_pcl_slave);
+            std::scoped_lock pcl(_lock_pcl_master,_lock_pcl_slave);
             done_wait = (_pcl_buffer_slave.size() == LASER_SCAN_FILTER_LENGTH) && (_pcl_buffer_master.size() == LASER_SCAN_FILTER_LENGTH);
         }
         if (done_wait){break;}
@@ -90,11 +89,11 @@ void icp_nav_follow_class::current_pcl_thread()
     RCLCPP_INFO_STREAM(this->get_logger(),"_pcl_buffer_master size : " << _pcl_buffer_master.size());
 
     
-    const pcl::PointCloud<pcl::PointXYZ>::Ptr    _cloud_out (new pcl::PointCloud<pcl::PointXYZ>);
-    const pcl::PointCloud<pcl::PointXYZ>::Ptr    _cloud_in  (new pcl::PointCloud<pcl::PointXYZ>);
+    const pcl::PointCloud<pcl::PointXYZ>::Ptr    _cloud_out = std::make_shared<pcl::PointCloud<pcl::PointXYZ>>()  ;
+    const pcl::PointCloud<pcl::PointXYZ>::Ptr    _cloud_in  = std::make_shared<pcl::PointCloud<pcl::PointXYZ>>()  ;
 
-    pcl::PointIndices::Ptr inliers_master(new pcl::PointIndices());
-    pcl::PointIndices::Ptr inliers_slave(new pcl::PointIndices());
+    pcl::PointIndices::Ptr inliers_master = std::make_shared<pcl::PointIndices>();
+    pcl::PointIndices::Ptr inliers_slave  = std::make_shared<pcl::PointIndices>();
 
     pcl::ExtractIndices<pcl::PointXYZ> extract_master;
     pcl::ExtractIndices<pcl::PointXYZ> extract_slave;
@@ -102,7 +101,7 @@ void icp_nav_follow_class::current_pcl_thread()
     rclcpp::Rate _rt(20);
 
     {
-        std::lock_guard<std::mutex> guard_pcl_slave(_lock_pcl_slave);
+        std::scoped_lock<std::mutex> guard_pcl_slave(_lock_pcl_slave);
         siz_s = static_cast<int>(this->_NewPcl_slave.points.size());
     }
 
@@ -112,7 +111,7 @@ void icp_nav_follow_class::current_pcl_thread()
     _cloud_in->points.resize (_cloud_in->width * _cloud_in->height);
 
     {
-        std::lock_guard<std::mutex> guard_pcl_master(_lock_pcl_master);
+        std::scoped_lock<std::mutex> guard_pcl_master(_lock_pcl_master);
         siz_m = static_cast<int>(this->_NewPcl_master.points.size());
     }
 
@@ -131,7 +130,7 @@ void icp_nav_follow_class::current_pcl_thread()
         std::future<void> slave_pcl = std::async(std::launch::async, 
                                         [this, &_cloud_in,&inliers_slave,&extract_slave]() {
                                         // auto start = std::chrono::high_resolution_clock::now();
-                                        std::lock_guard<std::mutex> guard_pcl_slave(this->_lock_pcl_slave);
+                                        std::scoped_lock<std::mutex> guard_pcl_slave(this->_lock_pcl_slave);
                                         std::fill(_cloud_in->points.begin(), _cloud_in->points.end(), pcl::PointXYZ());
                                         std::set<size_t> indexes;
                                         for (auto it=_pcl_buffer_slave.begin(); it!=_pcl_buffer_slave.end(); ++it)
@@ -171,7 +170,7 @@ void icp_nav_follow_class::current_pcl_thread()
         std::future<void> master_pcl = std::async(std::launch::async, 
                                         [this, &_cloud_out,&inliers_master,&extract_master]() {
 
-                                        std::lock_guard<std::mutex> guard_pcl_master(this->_lock_pcl_master);
+                                        std::scoped_lock<std::mutex> guard_pcl_master(this->_lock_pcl_master);
                                         std::fill(_cloud_out->points.begin(), _cloud_out->points.end(), pcl::PointXYZ());
                                         std::set<size_t> indexes;
                                         for (auto it=_pcl_buffer_master.begin(); it!=_pcl_buffer_master.end(); ++it)
@@ -210,8 +209,8 @@ void icp_nav_follow_class::current_pcl_thread()
         // std::cout << "in " << _cloud_in->points.size() << std::flush << "\n"; 
         // std::cout << "out " << _cloud_out->points.size() << std::flush <<"\n"; 
 
-        sensor_msgs::msg::PointCloud2::SharedPtr pc2_msg_master = std::make_shared<sensor_msgs::msg::PointCloud2>();
-        sensor_msgs::msg::PointCloud2::SharedPtr pc2_msg_slave  = std::make_shared<sensor_msgs::msg::PointCloud2>();
+        auto pc2_msg_master = std::make_shared<sensor_msgs::msg::PointCloud2>();
+        auto pc2_msg_slave  = std::make_shared<sensor_msgs::msg::PointCloud2>();
 
         pcl::toROSMsg(*_cloud_in, *pc2_msg_slave);
         pcl::toROSMsg(*_cloud_out, *pc2_msg_master);
@@ -226,7 +225,7 @@ void icp_nav_follow_class::current_pcl_thread()
 
         Eigen::Matrix4f guess;
         {
-            std::lock_guard<std::mutex> guard_tf(_tf_mutex);
+            std::scoped_lock<std::mutex> guard_tf(_tf_mutex);
             _guess_tf = tf2::transformToEigen(_t_master_slave).matrix().cast<float>();
 
         }
@@ -241,7 +240,7 @@ void icp_nav_follow_class::current_pcl_thread()
         _icp.setInputSource (_cloud_out);
         _icp.setInputTarget (_cloud_in);
         {
-            std::lock_guard<std::mutex> guard_icp(_icp_mutex);
+            std::scoped_lock<std::mutex> guard_icp(_icp_mutex);
             _icp.align (*_cloud_out,_guess_tf);
             _icp_current = _icp.getFinalTransformation().cast<double>() ;
         }
@@ -279,7 +278,7 @@ void icp_nav_follow_class::current_pcl_thread()
 
 
             Eigen::Vector3d ea = err.block<3,3>(0,0).eulerAngles(2, 1, 0);
-            // w_err = y;
+            w_err = ea(2);
 
 
             auto dt = rclcpp::Duration(50ms);
@@ -303,7 +302,7 @@ void icp_nav_follow_class::current_tf_thread()
     while(rclcpp::ok())
     {
         try {
-            std::lock_guard<std::mutex> guard_tf(_tf_mutex);
+            std::scoped_lock<std::mutex> guard_tf(_tf_mutex);
             _t_master_slave = _tf_buffer->lookupTransform(
             _master_frame, _slave_frame,
             tf2::TimePointZero);
@@ -348,7 +347,7 @@ void icp_nav_follow_class::tf_follow_thread()
     while(rclcpp::ok())
     {
         {
-            std::lock_guard<std::mutex> guard_tf(_tf_mutex);
+            std::scoped_lock<std::mutex> guard_tf(_tf_mutex);
             tf2::fromMsg(_t_master_slave, stamped_transform_now);
         }
 
@@ -381,17 +380,17 @@ void icp_nav_follow_class::tf_follow_thread()
 
 void icp_nav_follow_class::init_control()
 {
-    _x_pid = new control_toolbox::PidROS(this->shared_from_this(),"x_pid");
-    _y_pid = new control_toolbox::PidROS(this->shared_from_this(),"y_pid");
-    _w_pid = new control_toolbox::PidROS(this->shared_from_this(),"w_pid");
+    _x_pid = std::make_unique<control_toolbox::PidROS>(this->shared_from_this(),"x_pid");
+    _y_pid = std::make_unique<control_toolbox::PidROS>(this->shared_from_this(),"y_pid");
+    _w_pid = std::make_unique<control_toolbox::PidROS>(this->shared_from_this(),"w_pid");
 
     _x_pid->initPid();
     _y_pid->initPid();
     _w_pid->initPid();
 
-    _x_pid_icp = new control_toolbox::PidROS(this->shared_from_this(),"x_pid_icp");
-    _y_pid_icp = new control_toolbox::PidROS(this->shared_from_this(),"y_pid_icp");
-    _w_pid_icp = new control_toolbox::PidROS(this->shared_from_this(),"w_pid_icp");
+    _x_pid_icp = std::make_unique<control_toolbox::PidROS>(this->shared_from_this(),"x_pid_icp");
+    _y_pid_icp = std::make_unique<control_toolbox::PidROS>(this->shared_from_this(),"y_pid_icp");
+    _w_pid_icp = std::make_unique<control_toolbox::PidROS>(this->shared_from_this(),"w_pid_icp");
     _x_pid_icp->initPid();
     _y_pid_icp->initPid();
     _w_pid_icp->initPid();
@@ -405,7 +404,7 @@ void icp_nav_follow_class::init_control()
 void icp_nav_follow_class::save_icp_goal(const std::shared_ptr<std_srvs::srv::Trigger::Request> request,
           std::shared_ptr<std_srvs::srv::Trigger::Response>      response)
 {
-    std::lock_guard<std::mutex> guard_icp(_icp_mutex);
+    std::scoped_lock<std::mutex> guard_icp(_icp_mutex);
     _icp_goal = _icp_current;
     response->success = true;
     RCLCPP_WARN(this->get_logger(),"icp control goal saved");
@@ -477,8 +476,8 @@ Node("icp_nav_follow")
     _pcl_master_pub = this->create_publisher<sensor_msgs::msg::PointCloud2>("master_pcl", 1);
     _pcl_slave_pub  = this->create_publisher<sensor_msgs::msg::PointCloud2>("slave_pcl" , 1);
 
-    _rate_tf     = new rclcpp::Rate(20);
-    _rate_follow = new rclcpp::Rate(20);
+    _rate_tf     = std::make_unique<rclcpp::Rate>(20);
+    _rate_follow = std::make_unique<rclcpp::Rate>(20);
 
     // _th_tf     = std::thread(&icp_nav_follow_class::current_tf_thread, this);
 
@@ -493,7 +492,7 @@ icp_nav_follow_class::dynamicParametersCallback(std::vector<rclcpp::Parameter> p
 {
     rcl_interfaces::msg::SetParametersResult result;
 
-    for (auto parameter : parameters) {
+    for (const auto parameter : parameters) {
 
         const auto & type = parameter.get_type();
         const auto & name = parameter.get_name();
