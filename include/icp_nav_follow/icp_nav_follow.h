@@ -55,20 +55,26 @@ class icp_nav_follow_class : public rclcpp::Node
         double  _icp_MaxCorrespondenceDistance;
 
         //PARAMS
-        std::string  _laser_scan_master,_laser_scan_slave,_frame_name,_cmd_vel_topic;
-        std::string  _slave_frame,_master_frame;
+        std::string  _laser_scan_master;
+        std::string  _laser_scan_slave;
+        std::string  _frame_name_laser_slave;
+        std::string  _frame_name_laser_master;
+        std::string  _frame_name_base_slave;
+        std::string  _frame_name_base_master;
+        std::string  _cmd_vel_topic;
+        // std::string  _slave_frame,_master_frame;
         rclcpp::node_interfaces::OnSetParametersCallbackHandle::SharedPtr dyn_params_handler_;
         rcl_interfaces::msg::SetParametersResult dynamicParametersCallback(std::vector<rclcpp::Parameter> parameters);
         
 
         //ROS
 
-        rclcpp::Subscription<sensor_msgs::msg::LaserScan>::SharedPtr    _sub_master;
-        rclcpp::Subscription<sensor_msgs::msg::LaserScan>::SharedPtr    _sub_slave;
+        rclcpp::Subscription<sensor_msgs::msg::LaserScan>::SharedPtr        _sub_master;
+        rclcpp::Subscription<sensor_msgs::msg::LaserScan>::SharedPtr        _sub_slave;
 
-        rclcpp::Publisher<geometry_msgs::msg::WrenchStamped>::SharedPtr _vis_pub;
-        rclcpp::Publisher<geometry_msgs::msg::Twist>::SharedPtr         _cmd_vel;
-        
+        rclcpp::Publisher<geometry_msgs::msg::WrenchStamped>::SharedPtr     _vis_pub;
+        rclcpp::Publisher<geometry_msgs::msg::Twist>::SharedPtr             _cmd_vel;
+            
         rclcpp::Publisher<sensor_msgs::msg::PointCloud2>::SharedPtr         _pcl_master_pub;
         rclcpp::Publisher<sensor_msgs::msg::PointCloud2>::SharedPtr         _pcl_slave_pub;
 
@@ -94,6 +100,8 @@ class icp_nav_follow_class : public rclcpp::Node
         Eigen::Matrix4d _icp_current = Eigen::Matrix4d::Identity ();
         Eigen::Matrix4d _icp_goal = Eigen::Matrix4d::Identity ();
         Eigen::Matrix4f _guess_tf;
+        tf2::Stamped<tf2::Transform> _tf_las_master_to_base;
+        tf2::Stamped<tf2::Transform> _tf_las_slave_to_base;
         
         std::string _path = ament_index_cpp::get_package_share_directory("icp_nav_follow");
         int siz_s,siz_m;
@@ -102,9 +110,11 @@ class icp_nav_follow_class : public rclcpp::Node
         //TF
         std::shared_ptr<tf2_ros::TransformListener> _tf_listener{nullptr};
         std::unique_ptr<tf2_ros::Buffer> _tf_buffer;
-        geometry_msgs::msg::TransformStamped _t_master_slave;
-        geometry_msgs::msg::TransformStamped _t_goal;
-        tf2::Stamped<tf2::Transform> _t_goal_transform;
+        geometry_msgs::msg::TransformStamped _tf_master_slave;
+        geometry_msgs::msg::TransformStamped _tf_goal_msg;
+        tf2::Stamped<tf2::Transform> _tf_goal_transform;
+        tf2::Stamped<tf2::Transform> _tf_laser_base_master;
+        tf2::Stamped<tf2::Transform> _tf_laser_base_slave;
         
 
         std::thread _th_tf;
@@ -136,6 +146,8 @@ class icp_nav_follow_class : public rclcpp::Node
         void tf_follow_thread();
         void init_control();
         void current_pcl_thread();
+        void get_tf_laser_base_master();
+        void get_tf_laser_base_slave();
 
         void save_icp_goal(const std::shared_ptr<std_srvs::srv::Trigger::Request> request,
           std::shared_ptr<std_srvs::srv::Trigger::Response>      response);

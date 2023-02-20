@@ -33,7 +33,7 @@ void icp_nav_follow_class::LasCallback_master(const sensor_msgs::msg::LaserScan:
         _NewPcl_master.points.push_back(_pnt_filt_master);
     }
    
-    _NewPcl_master.header.frame_id = _frame_name;
+    _NewPcl_master.header.frame_id = _frame_name_laser_master;
     _NewPcl_master.header.stamp    = this->get_clock()->now();
 
     _pcl_buffer_master.push_back(_NewPcl_master);
@@ -63,7 +63,7 @@ void icp_nav_follow_class::LasCallback_slave(const sensor_msgs::msg::LaserScan::
         _NewPcl_slave.points.push_back(_pnt_filt_slave);
     }
    
-    _NewPcl_slave.header.frame_id = _frame_name;
+    _NewPcl_slave.header.frame_id = _frame_name_laser_slave;
     _NewPcl_slave.header.stamp    = this->get_clock()->now();
 
     _pcl_buffer_slave.push_back(_NewPcl_slave);
@@ -89,8 +89,8 @@ void icp_nav_follow_class::current_pcl_thread()
     RCLCPP_INFO_STREAM(this->get_logger(),"_pcl_buffer_master size : " << _pcl_buffer_master.size());
 
     
-    const pcl::PointCloud<pcl::PointXYZ>::Ptr    _cloud_out = std::make_shared<pcl::PointCloud<pcl::PointXYZ>>()  ;
-    const pcl::PointCloud<pcl::PointXYZ>::Ptr    _cloud_in  = std::make_shared<pcl::PointCloud<pcl::PointXYZ>>()  ;
+    const pcl::PointCloud<pcl::PointXYZ>::Ptr    _cloud_master = std::make_shared<pcl::PointCloud<pcl::PointXYZ>>()  ;
+    const pcl::PointCloud<pcl::PointXYZ>::Ptr    _cloud_slave  = std::make_shared<pcl::PointCloud<pcl::PointXYZ>>()  ;
 
     pcl::PointIndices::Ptr inliers_master = std::make_shared<pcl::PointIndices>();
     pcl::PointIndices::Ptr inliers_slave  = std::make_shared<pcl::PointIndices>();
@@ -100,25 +100,25 @@ void icp_nav_follow_class::current_pcl_thread()
 
     rclcpp::Rate _rt(20);
 
-    {
-        std::scoped_lock<std::mutex> guard_pcl_slave(_lock_pcl_slave);
-        siz_s = static_cast<int>(this->_NewPcl_slave.points.size());
-    }
+    // {
+    //     std::scoped_lock<std::mutex> guard_pcl_slave(_lock_pcl_slave);
+    //     siz_s = static_cast<int>(this->_NewPcl_slave.points.size());
+    // }
 
-    _cloud_in->width    = siz_s;
-    _cloud_in->height   = 1;
-    _cloud_in->is_dense = true;
-    _cloud_in->points.resize (_cloud_in->width * _cloud_in->height);
+    // _cloud_slave->width    = siz_s;
+    // _cloud_slave->height   = 1;
+    // _cloud_slave->is_dense = true;
+    // _cloud_slave->points.resize (_cloud_slave->width * _cloud_slave->height);
 
-    {
-        std::scoped_lock<std::mutex> guard_pcl_master(_lock_pcl_master);
-        siz_m = static_cast<int>(this->_NewPcl_master.points.size());
-    }
+    // {
+    //     std::scoped_lock<std::mutex> guard_pcl_master(_lock_pcl_master);
+    //     siz_m = static_cast<int>(this->_NewPcl_master.points.size());
+    // }
 
-    _cloud_out->width    = siz_m;
-    _cloud_out->height   = 1;
-    _cloud_out->is_dense = true;
-    _cloud_out->points.resize (_cloud_out->width * _cloud_out->height);
+    // _cloud_master->width    = siz_m;
+    // _cloud_master->height   = 1;
+    // _cloud_master->is_dense = true;
+    // _cloud_master->points.resize (_cloud_master->width * _cloud_master->height);
     
     double outx;
     double outy;
@@ -128,23 +128,29 @@ void icp_nav_follow_class::current_pcl_thread()
     {
 
         std::future<void> slave_pcl = std::async(std::launch::async, 
-                                        [this, &_cloud_in,&inliers_slave,&extract_slave]() {
-                                        // auto start = std::chrono::high_resolution_clock::now();
-                                        std::scoped_lock<std::mutex> guard_pcl_slave(this->_lock_pcl_slave);
-                                        std::fill(_cloud_in->points.begin(), _cloud_in->points.end(), pcl::PointXYZ());
+                                        [this, &_cloud_slave,&inliers_slave,&extract_slave]() {
+
+                                        std::lock_guard<std::mutex> guard_pcl_slave(_lock_pcl_slave);
+                                        int siz = static_cast<int>(this->_NewPcl_slave.points.size());
+                                        //PCL for _icp
+                                        _cloud_slave->width    = siz;
+                                        _cloud_slave->height   = 1;
+                                        _cloud_slave->is_dense = true;
+                                        _cloud_slave->points.clear();
                                         std::set<size_t> indexes;
+                                        _cloud_slave->points.resize (_cloud_slave->width * _cloud_slave->height);
                                         for (auto it=_pcl_buffer_slave.begin(); it!=_pcl_buffer_slave.end(); ++it)
                                         {
-                                            for (size_t i = 0; i < _cloud_in->points.size (); ++i)
+                                            for (size_t i = 0; i < _cloud_slave->points.size (); ++i)
                                             {
                                                 if ((it->points[i].x == 0.0) || (it->points[i].y == 0.0))
                                                 {
                                                     indexes.insert(i);
                                                     continue;
                                                 }
-                                                _cloud_in->points[i].x = _cloud_in->points[i].x +  it->points[i].x/double(LASER_SCAN_FILTER_LENGTH);
-                                                _cloud_in->points[i].y = _cloud_in->points[i].y +  it->points[i].y/double(LASER_SCAN_FILTER_LENGTH);
-                                                _cloud_in->points[i].z = 0.0;
+                                                _cloud_slave->points[i].x = _cloud_slave->points[i].x +  it->points[i].x/double(LASER_SCAN_FILTER_LENGTH);
+                                                _cloud_slave->points[i].y = _cloud_slave->points[i].y +  it->points[i].y/double(LASER_SCAN_FILTER_LENGTH);
+                                                _cloud_slave->points[i].z = 0.0;
                                             }
                                         }
                                         
@@ -154,51 +160,50 @@ void icp_nav_follow_class::current_pcl_thread()
                                         for (auto it = indexes.begin(); it != indexes.end(); ++it) {
                                             inliers_slave->indices.push_back(*it);
                                         }
-                                        extract_slave.setInputCloud(_cloud_in);
+                                        extract_slave.setInputCloud(_cloud_slave);
                                         extract_slave.setIndices(inliers_slave);
                                         extract_slave.setNegative(true);
-                                        extract_slave.setUserFilterValue(0.0);
-                                        extract_slave.setKeepOrganized(true);
-                                        extract_slave.filter(*_cloud_in);
-                                        // auto stop = std::chrono::high_resolution_clock::now();
-                                        // auto duration = std::chrono::duration_cast<std::chrono::microseconds>(stop - start);
-                                        // RCLCPP_INFO_STREAM(this->get_logger(),"time: " << duration.count());
+                                        extract_slave.filter(*_cloud_slave);
                                         }
                                     );
 
 
         std::future<void> master_pcl = std::async(std::launch::async, 
-                                        [this, &_cloud_out,&inliers_master,&extract_master]() {
+                                        [this, &_cloud_master,&inliers_master,&extract_master]() {
 
-                                        std::scoped_lock<std::mutex> guard_pcl_master(this->_lock_pcl_master);
-                                        std::fill(_cloud_out->points.begin(), _cloud_out->points.end(), pcl::PointXYZ());
+                                        std::lock_guard<std::mutex> guard_pcl_master(_lock_pcl_slave);
+                                        int siz = static_cast<int>(this->_NewPcl_master.points.size());
+                                        inliers_master->indices.clear();
                                         std::set<size_t> indexes;
+                                        //PCL for _icp
+                                        _cloud_master->width    = siz;
+                                        _cloud_master->height   = 1;
+                                        _cloud_master->is_dense = true;
+                                        _cloud_master->points.clear();
+                                        _cloud_master->points.resize (_cloud_master->width * _cloud_master->height);
                                         for (auto it=_pcl_buffer_master.begin(); it!=_pcl_buffer_master.end(); ++it)
                                         {
-                                            for (size_t i = 0; i < _cloud_out->points.size (); ++i)
+                                            for (size_t i = 0; i < _cloud_master->points.size (); ++i)
                                             {
                                                 if ((it->points[i].x == 0.0) || (it->points[i].y == 0.0))
                                                 {
                                                     indexes.insert(i);
                                                     continue;
                                                 }
-                                                _cloud_out->points[i].x = _cloud_out->points[i].x +  it->points[i].x/double(LASER_SCAN_FILTER_LENGTH);
-                                                _cloud_out->points[i].y = _cloud_out->points[i].y +  it->points[i].y/double(LASER_SCAN_FILTER_LENGTH);
-                                                _cloud_out->points[i].z = 0.0;
+                                                _cloud_master->points[i].x = _cloud_master->points[i].x +  it->points[i].x/double(LASER_SCAN_FILTER_LENGTH);
+                                                _cloud_master->points[i].y = _cloud_master->points[i].y +  it->points[i].y/double(LASER_SCAN_FILTER_LENGTH);
+                                                _cloud_master->points[i].z = 0.0;
                                             }
                                         }
                                         
-                                        inliers_master->indices.clear();
                                         for (auto it = indexes.begin(); it != indexes.end(); ++it) {
                                             inliers_master->indices.push_back(*it);
                                         }
 
-                                        extract_master.setInputCloud(_cloud_out);
+                                        extract_master.setInputCloud(_cloud_master);
                                         extract_master.setIndices(inliers_master);
                                         extract_master.setNegative(true);
-                                        extract_master.setUserFilterValue(0.0);
-                                        extract_master.setKeepOrganized(true);
-                                        extract_master.filter(*_cloud_out);
+                                        extract_master.filter(*_cloud_master);
                                         }
                                     );
 
@@ -206,16 +211,17 @@ void icp_nav_follow_class::current_pcl_thread()
         slave_pcl.get();
         master_pcl.get();
 
-        // std::cout << "in " << _cloud_in->points.size() << std::flush << "\n"; 
-        // std::cout << "out " << _cloud_out->points.size() << std::flush <<"\n"; 
+        // std::cout << "in " << _cloud_slave->points.size() << std::flush << "\n"; 
+        // std::cout << "out " << _cloud_master->points.size() << std::flush <<"\n"; 
 
         auto pc2_msg_master = std::make_shared<sensor_msgs::msg::PointCloud2>();
         auto pc2_msg_slave  = std::make_shared<sensor_msgs::msg::PointCloud2>();
 
-        pcl::toROSMsg(*_cloud_in, *pc2_msg_slave);
-        pcl::toROSMsg(*_cloud_out, *pc2_msg_master);
-        pc2_msg_slave->header.frame_id = "azrael/laser";
-        pc2_msg_master->header.frame_id = "omron/base_link";
+        pcl::toROSMsg(*_cloud_slave, *pc2_msg_slave);
+        pcl::toROSMsg(*_cloud_master, *pc2_msg_master);
+
+        pc2_msg_slave->header.frame_id = _frame_name_laser_slave;
+        pc2_msg_master->header.frame_id = _frame_name_laser_master;
 
         pc2_msg_master->header.stamp = now();
         pc2_msg_slave->header.stamp = now();
@@ -226,28 +232,34 @@ void icp_nav_follow_class::current_pcl_thread()
         Eigen::Matrix4f guess;
         {
             std::scoped_lock<std::mutex> guard_tf(_tf_mutex);
-            _guess_tf = tf2::transformToEigen(_t_master_slave).matrix().cast<float>();
+            _guess_tf = tf2::transformToEigen(_tf_master_slave).matrix().cast<float>();
 
         }
-        // Eigen::Matrix4f guess = tf2::transformToEigen(_t_master_slave).matrix().cast<float>();
 
         _icp.setMaximumIterations (_icp_iterations);
-        _icp.setTransformationEpsilon (_icp_TransformationEpsilon);
-        _icp.setEuclideanFitnessEpsilon (_icp_EuclideanFitnessEpsilon);
-        _icp.setRANSACOutlierRejectionThreshold (_icp_RANSACOutlierRejectionThreshold);
-        _icp.setMaxCorrespondenceDistance(_icp_MaxCorrespondenceDistance);
+        // _icp.setTransformationEpsilon (_icp_TransformationEpsilon);
+        // _icp.setEuclideanFitnessEpsilon (_icp_EuclideanFitnessEpsilon);
+        // _icp.setRANSACOutlierRejectionThreshold (_icp_RANSACOutlierRejectionThreshold);
+        // _icp.setMaxCorrespondenceDistance(_icp_MaxCorrespondenceDistance);
 
-        _icp.setInputSource (_cloud_out);
-        _icp.setInputTarget (_cloud_in);
+
+        //TODO WRONG guess, guess to laser not base footprint
         {
-            std::scoped_lock<std::mutex> guard_icp(_icp_mutex);
-            _icp.align (*_cloud_out,_guess_tf);
+            std::scoped_lock guard_icp(_icp_mutex,_lock_pcl_slave,_lock_pcl_master);
+            _icp.setInputSource (_cloud_master);
+            _icp.setInputTarget (_cloud_slave);
+            // RCLCPP_INFO_STREAM(this->get_logger(),_guess_tf);
+            _icp.align (*_cloud_master,_guess_tf.inverse());
+            // _icp.align (*_cloud_master);
+            //TODO pub output
+            //TODO limita angolo perchè smatta a 3.14
             _icp_current = _icp.getFinalTransformation().cast<double>() ;
+            RCLCPP_INFO_STREAM_THROTTLE(this->get_logger(),*this->get_clock(),1000,"Score: " << _icp.getFitnessScore());
         }
 
 
         geometry_msgs::msg::WrenchStamped wrench_out;
-        wrench_out.header.frame_id = _frame_name;
+        wrench_out.header.frame_id = _frame_name_laser_slave;
         wrench_out.header.stamp    = this->get_clock()->now();
         wrench_out.wrench.force.x  = _icp_current(0,3);
         wrench_out.wrench.force.y  = _icp_current(1,3);
@@ -271,7 +283,7 @@ void icp_nav_follow_class::current_pcl_thread()
             double x_cmd,y_cmd,w_cmd;
             geometry_msgs::msg::Twist vel_cmd;
 
-            Eigen::Matrix4d err =  _icp_current.inverse() * _icp_goal;
+            Eigen::Matrix4d err =  _tf_laser_base_slave * _icp_current * _tf_laser_base_master.inverse() * _icp_goal;
 
             x_err = err(0,3);
             y_err = err(1,3);
@@ -303,14 +315,13 @@ void icp_nav_follow_class::current_tf_thread()
     {
         try {
             std::scoped_lock<std::mutex> guard_tf(_tf_mutex);
-            _t_master_slave = _tf_buffer->lookupTransform(
-            _master_frame, _slave_frame,
+            _tf_master_slave = _tf_buffer->lookupTransform(
+            _frame_name_base_master, _frame_name_base_slave,
             tf2::TimePointZero);
         } catch (const tf2::TransformException & ex) {
             RCLCPP_INFO(
             this->get_logger(), "Could not transform %s to %s: %s",
-            _master_frame.c_str(), _slave_frame.c_str(), ex.what());
-            return;
+            _frame_name_base_master.c_str(), _frame_name_base_slave.c_str(), ex.what());
         }
         // std::this_thread::sleep_for(50ms);
         _rate_tf->sleep();
@@ -321,17 +332,55 @@ void icp_nav_follow_class::get_tf_goal()
 {
     //TODO spin_once ??
     tf2::Stamped<tf2::Transform> stamped_transform;
-    while(!_tf_buffer->canTransform(_master_frame, _slave_frame, tf2::TimePointZero, 2000ms) && rclcpp::ok()) {
+    while(!_tf_buffer->canTransform(_frame_name_base_master, _frame_name_base_slave, tf2::TimePointZero, 2000ms) && rclcpp::ok()) {
       RCLCPP_INFO(
                     get_logger(), "waiting 2000 ms for %s->%s transform to become available",
-                    _master_frame.c_str(), _slave_frame.c_str());
+                    _frame_name_base_master.c_str(), _frame_name_base_slave.c_str());
       std::this_thread::sleep_for(200ms);
     }
-    _t_goal = _tf_buffer->lookupTransform(
-            _master_frame, _slave_frame,
+    _tf_goal_msg = _tf_buffer->lookupTransform(
+            _frame_name_base_master, _frame_name_base_slave,
             tf2::TimePointZero);
 
-    tf2::fromMsg(_t_goal, _t_goal_transform);
+    tf2::fromMsg(_tf_goal_msg, _tf_goal_transform);
+
+    RCLCPP_INFO(get_logger(), "Initial transformation stored");
+}
+
+void icp_nav_follow_class::get_tf_laser_base_master()
+{
+    //TODO spin_once ??
+    tf2::Stamped<tf2::Transform> stamped_transform;
+    while(!_tf_buffer->canTransform(_frame_name_laser_master, _frame_name_base_master, tf2::TimePointZero, 2000ms) && rclcpp::ok()) {
+      RCLCPP_INFO(
+                    get_logger(), "waiting 2000 ms for %s->%s transform to become available",
+                    _frame_name_laser_master.c_str(), _frame_name_base_master.c_str());
+      std::this_thread::sleep_for(200ms);
+    }
+    geometry_msgs::msg::TransformStamped _tf_tmp = _tf_buffer->lookupTransform(
+            _frame_name_laser_master, _frame_name_base_master,
+            tf2::TimePointZero);
+
+    tf2::fromMsg(_tf_tmp, _tf_laser_base_master);
+
+    RCLCPP_INFO(get_logger(), "Initial transformation stored");
+}
+
+void icp_nav_follow_class::get_tf_laser_base_slave()
+{
+    //TODO spin_once ??
+    tf2::Stamped<tf2::Transform> stamped_transform;
+    while(!_tf_buffer->canTransform(_frame_name_laser_slave, _frame_name_base_slave, tf2::TimePointZero, 2000ms) && rclcpp::ok()) {
+      RCLCPP_INFO(
+                    get_logger(), "waiting 2000 ms for %s->%s transform to become available",
+                    _frame_name_laser_slave.c_str(), _frame_name_base_slave.c_str());
+      std::this_thread::sleep_for(200ms);
+    }
+    geometry_msgs::msg::TransformStamped _tf_tmp = _tf_buffer->lookupTransform(
+            _frame_name_laser_slave, _frame_name_base_slave,
+            tf2::TimePointZero);
+
+    tf2::fromMsg(_tf_tmp, _tf_laser_base_slave);
 
     RCLCPP_INFO(get_logger(), "Initial transformation stored");
 }
@@ -348,10 +397,10 @@ void icp_nav_follow_class::tf_follow_thread()
     {
         {
             std::scoped_lock<std::mutex> guard_tf(_tf_mutex);
-            tf2::fromMsg(_t_master_slave, stamped_transform_now);
+            tf2::fromMsg(_tf_master_slave, stamped_transform_now);
         }
 
-        tf2::Transform err =  stamped_transform_now.inverse() * _t_goal_transform;
+        tf2::Transform err =  stamped_transform_now.inverse() * _tf_goal_transform;
 
         x_err = err.getOrigin().getX();
         y_err = err.getOrigin().getY();
@@ -395,7 +444,9 @@ void icp_nav_follow_class::init_control()
     _y_pid_icp->initPid();
     _w_pid_icp->initPid();
 
-    // this->get_tf_goal();
+    this->get_tf_goal();
+    this->get_tf_laser_base_master();
+    this->get_tf_laser_base_slave();
     // _th_follow = std::thread(&icp_nav_follow_class::tf_follow_thread, this);
 
     _th_pcl    = std::thread(&icp_nav_follow_class::current_pcl_thread, this);
@@ -432,7 +483,10 @@ Node("icp_nav_follow")
 
     this->declare_parameter("laser_scan_master"                       , rclcpp::ParameterValue(std::string("")));
     this->declare_parameter("laser_scan_slave"                        , rclcpp::ParameterValue(std::string("")));
-    this->declare_parameter("frame_name"                              , rclcpp::ParameterValue(std::string("")));
+    this->declare_parameter("frame_name_laser_slave"                  , rclcpp::ParameterValue(std::string("")));
+    this->declare_parameter("frame_name_laser_master"                 , rclcpp::ParameterValue(std::string("")));
+    this->declare_parameter("frame_name_base_slave"                   , rclcpp::ParameterValue(std::string("")));
+    this->declare_parameter("frame_name_base_master"                  , rclcpp::ParameterValue(std::string("")));
     this->declare_parameter("cmd_vel_topic"                           , rclcpp::ParameterValue(std::string("")));
     this->declare_parameter("master_frame"                            , rclcpp::ParameterValue(std::string("")));
     this->declare_parameter("slave_frame"                             , rclcpp::ParameterValue(std::string("")));
@@ -442,13 +496,14 @@ Node("icp_nav_follow")
     this->declare_parameter("icp_RANSACOutlierRejectionThreshold"     , rclcpp::ParameterValue(0.0));
     this->declare_parameter("icp_MaxCorrespondenceDistance"           , rclcpp::ParameterValue(0.0));
 
-    _laser_scan_master = this->get_parameter("laser_scan_master").get_parameter_value().get<std::string>();
-    _laser_scan_slave  = this->get_parameter("laser_scan_slave").get_parameter_value().get<std::string>();
-    _frame_name        = this->get_parameter("frame_name").get_parameter_value().get<std::string>();
-    _cmd_vel_topic     = this->get_parameter("cmd_vel_topic").get_parameter_value().get<std::string>();
+    _laser_scan_master       = this->get_parameter("laser_scan_master").get_parameter_value().get<std::string>();
+    _laser_scan_slave        = this->get_parameter("laser_scan_slave").get_parameter_value().get<std::string>();
+    _frame_name_laser_slave  = this->get_parameter("frame_name_laser_slave").get_parameter_value().get<std::string>();
+    _frame_name_laser_master = this->get_parameter("frame_name_laser_master").get_parameter_value().get<std::string>();
+    _frame_name_base_slave   = this->get_parameter("frame_name_base_slave").get_parameter_value().get<std::string>();
+    _frame_name_base_master  = this->get_parameter("frame_name_base_master").get_parameter_value().get<std::string>();
+    _cmd_vel_topic           = this->get_parameter("cmd_vel_topic").get_parameter_value().get<std::string>();
     
-    _master_frame      = this->get_parameter("master_frame").get_parameter_value().get<std::string>();
-    _slave_frame       = this->get_parameter("slave_frame").get_parameter_value().get<std::string>();
 
     _icp_iterations                      = this->get_parameter("icp_iterations"                     ).get_parameter_value().get<int>();
     _icp_TransformationEpsilon           = this->get_parameter("icp_TransformationEpsilon"          ).get_parameter_value().get<double>();
@@ -479,7 +534,7 @@ Node("icp_nav_follow")
     _rate_tf     = std::make_unique<rclcpp::Rate>(20);
     _rate_follow = std::make_unique<rclcpp::Rate>(20);
 
-    // _th_tf     = std::thread(&icp_nav_follow_class::current_tf_thread, this);
+    _th_tf     = std::thread(&icp_nav_follow_class::current_tf_thread, this);
 
     _save_icp_goal_srv  = this->create_service<std_srvs::srv::Trigger>("save_icp_goal" , std::bind(&icp_nav_follow_class::save_icp_goal , this, std::placeholders::_1,std::placeholders::_2));
     _start_icp_goal_srv = this->create_service<std_srvs::srv::Trigger>("start_icp_goal", std::bind(&icp_nav_follow_class::start_icp_goal, this, std::placeholders::_1,std::placeholders::_2));
