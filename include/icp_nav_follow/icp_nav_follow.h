@@ -113,8 +113,8 @@ class icp_nav_follow_class : public rclcpp::Node
         geometry_msgs::msg::TransformStamped _tf_master_slave;
         geometry_msgs::msg::TransformStamped _tf_goal_msg;
         tf2::Stamped<tf2::Transform> _tf_goal_transform;
-        tf2::Stamped<tf2::Transform> _tf_laser_base_master;
-        tf2::Stamped<tf2::Transform> _tf_laser_base_slave;
+        geometry_msgs::msg::TransformStamped _tf_laser_base_master;
+        geometry_msgs::msg::TransformStamped _tf_laser_base_slave;
         
 
         std::thread _th_tf;

@@ -237,10 +237,10 @@ void icp_nav_follow_class::current_pcl_thread()
         }
 
         _icp.setMaximumIterations (_icp_iterations);
-        // _icp.setTransformationEpsilon (_icp_TransformationEpsilon);
-        // _icp.setEuclideanFitnessEpsilon (_icp_EuclideanFitnessEpsilon);
-        // _icp.setRANSACOutlierRejectionThreshold (_icp_RANSACOutlierRejectionThreshold);
-        // _icp.setMaxCorrespondenceDistance(_icp_MaxCorrespondenceDistance);
+        _icp.setTransformationEpsilon (_icp_TransformationEpsilon);
+        _icp.setEuclideanFitnessEpsilon (_icp_EuclideanFitnessEpsilon);
+        _icp.setRANSACOutlierRejectionThreshold (_icp_RANSACOutlierRejectionThreshold);
+        _icp.setMaxCorrespondenceDistance(_icp_MaxCorrespondenceDistance);
 
 
         //TODO WRONG guess, guess to laser not base footprint
@@ -250,11 +250,17 @@ void icp_nav_follow_class::current_pcl_thread()
             _icp.setInputTarget (_cloud_slave);
             // RCLCPP_INFO_STREAM(this->get_logger(),_guess_tf);
             _icp.align (*_cloud_master,_guess_tf.inverse());
-            // _icp.align (*_cloud_master);
+            // TransformationEstimation2D<pcl::PointXYZ, pcl::PointXYZ> pd;
+            // Eigen::Matrix4f pd_out;
+            // pd.estimateRigidTransformation(*_cloud_master,*_cloud_slave,pd_out);
+            // RCLCPP_INFO_STREAM_THROTTLE(this->get_logger(),*this->get_clock(),1000,"PD: " << pd_out);
+
             //TODO pub output
             //TODO limita angolo perchè smatta a 3.14
             _icp_current = _icp.getFinalTransformation().cast<double>() ;
-            RCLCPP_INFO_STREAM_THROTTLE(this->get_logger(),*this->get_clock(),1000,"Score: " << _icp.getFitnessScore());
+            // _icp_current.col(2).setZero();
+            // _icp_current.row(2).setZero();
+            // _icp_current(2,2)   = 1.0;
         }
 
 
@@ -277,28 +283,35 @@ void icp_nav_follow_class::current_pcl_thread()
 
         _vis_pub->publish( wrench_out );
 
-        if(_icp_controlling)
-        {
+        // if(_icp_controlling)
+        // {
             double x_err,y_err,w_err;
             double x_cmd,y_cmd,w_cmd;
             geometry_msgs::msg::Twist vel_cmd;
 
-            Eigen::Matrix4d err =  _tf_laser_base_slave * _icp_current * _tf_laser_base_master.inverse() * _icp_goal;
+            Eigen::Matrix4d laser_base_slave  = tf2::transformToEigen(_tf_laser_base_slave).matrix();
+            Eigen::Matrix4d laser_base_master = tf2::transformToEigen(_tf_laser_base_master).matrix();
 
+            Eigen::Matrix4d curr =  laser_base_slave.inverse() * _icp_current * laser_base_master;
+            Eigen::Matrix4d err  = curr * _icp_goal.inverse();
             x_err = err(0,3);
             y_err = err(1,3);
 
-
-            Eigen::Vector3d ea = err.block<3,3>(0,0).eulerAngles(2, 1, 0);
+            Eigen::Vector3d ea = err.block<3,3>(0,0).eulerAngles(0, 1, 2);
             w_err = ea(2);
+            RCLCPP_INFO_STREAM_THROTTLE(this->get_logger(),*this->get_clock(),1000,"err00: " << x_err << " " << y_err << " " << std::setprecision (15) << w_err << " " << "\n");
+            w_err = ( w_err >  3) ? w_err - M_PI : w_err;
+            w_err = ( w_err < -3) ? w_err + M_PI : w_err;
+            RCLCPP_INFO_STREAM_THROTTLE(this->get_logger(),*this->get_clock(),1000,"err: " << x_err << " " << y_err << " " << std::setprecision (15) << w_err << " " << "\n");
 
-
+        if(_icp_controlling)
+        {
             auto dt = rclcpp::Duration(50ms);
             x_cmd = _x_pid_icp->computeCommand(x_err,dt);
             y_cmd = _y_pid_icp->computeCommand(y_err,dt);
             w_cmd = _w_pid_icp->computeCommand(w_err,dt);
             
-            RCLCPP_INFO_STREAM(get_logger(),"cmd: " << x_cmd << " " << y_cmd << " " << w_cmd << " " << "\n");
+            RCLCPP_INFO_STREAM_THROTTLE(this->get_logger(),*this->get_clock(),1000,"cmd: " << x_cmd << " " << y_cmd << " " << w_cmd << " " << "\n");
             vel_cmd.linear.x  = x_cmd;
             vel_cmd.linear.y  = y_cmd;
             vel_cmd.angular.z = w_cmd;
@@ -351,17 +364,15 @@ void icp_nav_follow_class::get_tf_laser_base_master()
 {
     //TODO spin_once ??
     tf2::Stamped<tf2::Transform> stamped_transform;
-    while(!_tf_buffer->canTransform(_frame_name_laser_master, _frame_name_base_master, tf2::TimePointZero, 2000ms) && rclcpp::ok()) {
+    while(!_tf_buffer->canTransform(_frame_name_base_master, _frame_name_laser_master, tf2::TimePointZero, 2000ms) && rclcpp::ok()) {
       RCLCPP_INFO(
                     get_logger(), "waiting 2000 ms for %s->%s transform to become available",
-                    _frame_name_laser_master.c_str(), _frame_name_base_master.c_str());
+                    _frame_name_base_master.c_str(), _frame_name_laser_master.c_str());
       std::this_thread::sleep_for(200ms);
     }
-    geometry_msgs::msg::TransformStamped _tf_tmp = _tf_buffer->lookupTransform(
-            _frame_name_laser_master, _frame_name_base_master,
+    _tf_laser_base_master = _tf_buffer->lookupTransform(
+            _frame_name_base_master, _frame_name_laser_master,
             tf2::TimePointZero);
-
-    tf2::fromMsg(_tf_tmp, _tf_laser_base_master);
 
     RCLCPP_INFO(get_logger(), "Initial transformation stored");
 }
@@ -370,17 +381,16 @@ void icp_nav_follow_class::get_tf_laser_base_slave()
 {
     //TODO spin_once ??
     tf2::Stamped<tf2::Transform> stamped_transform;
-    while(!_tf_buffer->canTransform(_frame_name_laser_slave, _frame_name_base_slave, tf2::TimePointZero, 2000ms) && rclcpp::ok()) {
+    while(!_tf_buffer->canTransform(_frame_name_base_slave, _frame_name_laser_slave, tf2::TimePointZero, 2000ms) && rclcpp::ok()) {
       RCLCPP_INFO(
                     get_logger(), "waiting 2000 ms for %s->%s transform to become available",
-                    _frame_name_laser_slave.c_str(), _frame_name_base_slave.c_str());
+                    _frame_name_base_slave.c_str(), _frame_name_laser_slave.c_str());
       std::this_thread::sleep_for(200ms);
     }
-    geometry_msgs::msg::TransformStamped _tf_tmp = _tf_buffer->lookupTransform(
-            _frame_name_laser_slave, _frame_name_base_slave,
+    _tf_laser_base_slave = _tf_buffer->lookupTransform(
+            _frame_name_base_slave, _frame_name_laser_slave,
             tf2::TimePointZero);
 
-    tf2::fromMsg(_tf_tmp, _tf_laser_base_slave);
 
     RCLCPP_INFO(get_logger(), "Initial transformation stored");
 }
@@ -440,6 +450,7 @@ void icp_nav_follow_class::init_control()
     _x_pid_icp = std::make_unique<control_toolbox::PidROS>(this->shared_from_this(),"x_pid_icp");
     _y_pid_icp = std::make_unique<control_toolbox::PidROS>(this->shared_from_this(),"y_pid_icp");
     _w_pid_icp = std::make_unique<control_toolbox::PidROS>(this->shared_from_this(),"w_pid_icp");
+
     _x_pid_icp->initPid();
     _y_pid_icp->initPid();
     _w_pid_icp->initPid();
@@ -456,14 +467,23 @@ void icp_nav_follow_class::save_icp_goal(const std::shared_ptr<std_srvs::srv::Tr
           std::shared_ptr<std_srvs::srv::Trigger::Response>      response)
 {
     std::scoped_lock<std::mutex> guard_icp(_icp_mutex);
-    _icp_goal = _icp_current;
+    Eigen::Matrix4d laser_base_slave  = tf2::transformToEigen(_tf_laser_base_slave).matrix();
+    Eigen::Matrix4d laser_base_master = tf2::transformToEigen(_tf_laser_base_master).matrix();
+    Eigen::Matrix4d goal_tmp = laser_base_slave.inverse() * _icp_current * laser_base_master;
+    goal_tmp.col(2).setZero();
+    goal_tmp.row(2).setZero();
+    goal_tmp(2,2)   = 1.0;
+    _icp_goal =  goal_tmp;
     response->success = true;
-    RCLCPP_WARN(this->get_logger(),"icp control goal saved");
+    RCLCPP_WARN_STREAM(this->get_logger(),"icp control goal saved : \n" << _icp_goal);
 }
 
 void icp_nav_follow_class::start_icp_goal(const std::shared_ptr<std_srvs::srv::Trigger::Request> request,
           std::shared_ptr<std_srvs::srv::Trigger::Response>      response)
 {
+    _x_pid_icp->reset();
+    _y_pid_icp->reset();
+    _w_pid_icp->reset();
     _icp_controlling = true;
     response->success = true;
     RCLCPP_WARN(this->get_logger(),"Starting icp control");
@@ -472,6 +492,9 @@ void icp_nav_follow_class::start_icp_goal(const std::shared_ptr<std_srvs::srv::T
 void icp_nav_follow_class::stop_icp_goal(const std::shared_ptr<std_srvs::srv::Trigger::Request> request,
           std::shared_ptr<std_srvs::srv::Trigger::Response>      response)
 {
+    _x_pid_icp->reset();
+    _y_pid_icp->reset();
+    _w_pid_icp->reset();
     _icp_controlling = false;
     response->success = true;
     RCLCPP_WARN(this->get_logger(),"Stopping icp control");
@@ -488,8 +511,6 @@ Node("icp_nav_follow")
     this->declare_parameter("frame_name_base_slave"                   , rclcpp::ParameterValue(std::string("")));
     this->declare_parameter("frame_name_base_master"                  , rclcpp::ParameterValue(std::string("")));
     this->declare_parameter("cmd_vel_topic"                           , rclcpp::ParameterValue(std::string("")));
-    this->declare_parameter("master_frame"                            , rclcpp::ParameterValue(std::string("")));
-    this->declare_parameter("slave_frame"                             , rclcpp::ParameterValue(std::string("")));
     this->declare_parameter("icp_iterations"                          , rclcpp::ParameterValue(0));
     this->declare_parameter("icp_TransformationEpsilon"               , rclcpp::ParameterValue(0.0));
     this->declare_parameter("icp_EuclideanFitnessEpsilon"             , rclcpp::ParameterValue(0.0));

@@ -34,9 +34,11 @@ def generate_launch_description():
                             {"laser_scan_master": "/sweepee_1/front_laser_plugin/out"},
                             {"frame_name": "sweepee_1/front_laser"},
                             {"cmd_vel_topic": "/sweepee_2/cmd_vel"},
-                            {"slave_frame":  "sweepee_2/front_laser"},
-                            {"master_frame": "sweepee_1/front_laser"},
-                            {"icp_iterations"                     : 15},
+                            {"frame_name_laser_slave":  "sweepee_2/front_laser"},
+                            {"frame_name_laser_master": "sweepee_1/front_laser"},
+                            {"frame_name_base_slave":   "sweepee_2/base_footprint"},
+                            {"frame_name_base_master":  "sweepee_1/base_footprint"},
+                            {"icp_iterations"                     : 5},
                             {"icp_TransformationEpsilon"          : 1e-9},
                             {"icp_EuclideanFitnessEpsilon"        : 1.0},
                             {"icp_RANSACOutlierRejectionThreshold": 1.5},
@@ -44,5 +46,3 @@ def generate_launch_description():
                             config])]
 
     return LaunchDescription(declared_arguments + node1)
-
-    

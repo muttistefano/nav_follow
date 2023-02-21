@@ -42,7 +42,7 @@ def generate_launch_description():
                             {"icp_RANSACOutlierRejectionThreshold": 1.5},
                             {"icp_MaxCorrespondenceDistance"      : 100.0},
                             config])]
-
+modifica
     return LaunchDescription(declared_arguments + node1)
 
     
