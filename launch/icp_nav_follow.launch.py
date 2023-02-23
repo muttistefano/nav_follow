@@ -32,17 +32,18 @@ def generate_launch_description():
                 arguments=['--ros-args', '--log-level', log_level],
                 parameters=[{"laser_scan_slave": "/azrael/scan"},
                             {"laser_scan_master": "/omron/scan"},
-                            {"frame_name": "azrael/laser"},
                             {"cmd_vel_topic": "/azrael/cmd_vel"},
-                            {"slave_frame":  "azrael/base_footprint"},
-                            {"master_frame": "omron/base_link"},
-                            {"icp_iterations"                     : 5},
-                            {"icp_TransformationEpsilon"          : 1e-9},
-                            {"icp_EuclideanFitnessEpsilon"        : 1.0},
+                            {"frame_name_laser_slave":  "azrael/laser"},
+                            {"frame_name_laser_master": "omron/base_link"},
+                            {"frame_name_base_slave":   "azrael/base_link"},
+                            {"frame_name_base_master":  "omron/base_link"},
+                            {"icp_iterations"                     : 100},
+                            {"icp_TransformationEpsilon"          : 1e-10},
+                            {"icp_EuclideanFitnessEpsilon"        : 0.00001},
                             {"icp_RANSACOutlierRejectionThreshold": 1.5},
                             {"icp_MaxCorrespondenceDistance"      : 100.0},
                             config])]
-modifica
+
     return LaunchDescription(declared_arguments + node1)
 
     

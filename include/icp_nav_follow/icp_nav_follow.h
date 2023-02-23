@@ -37,7 +37,8 @@
 #include <std_srvs/srv/trigger.hpp>
 
 
-constexpr int   LASER_SCAN_FILTER_LENGTH   = 3;
+// constexpr int   LASER_SCAN_FILTER_LENGTH   = 3;
+constexpr int   LASER_SCAN_FILTER_LENGTH   = 1;
 // constexpr double FILT_DIST                 = 3.0;
 // constexpr double MIN_DIST                  = 0.3;
 
@@ -77,6 +78,7 @@ class icp_nav_follow_class : public rclcpp::Node
             
         rclcpp::Publisher<sensor_msgs::msg::PointCloud2>::SharedPtr         _pcl_master_pub;
         rclcpp::Publisher<sensor_msgs::msg::PointCloud2>::SharedPtr         _pcl_slave_pub;
+        rclcpp::Publisher<sensor_msgs::msg::PointCloud2>::SharedPtr         _pcl_reg_pub;
 
         rclcpp::Service<std_srvs::srv::Trigger>::SharedPtr _save_icp_goal_srv;
         rclcpp::Service<std_srvs::srv::Trigger>::SharedPtr _start_icp_goal_srv;
@@ -97,8 +99,8 @@ class icp_nav_follow_class : public rclcpp::Node
         geometry_msgs::msg::Point32  _pnt_filt_slave;
         geometry_msgs::msg::Point32  _pnt_filt_master;
 
-        Eigen::Matrix4d _icp_current = Eigen::Matrix4d::Identity ();
-        Eigen::Matrix4d _icp_goal = Eigen::Matrix4d::Identity ();
+        Eigen::Affine3d _icp_current = Eigen::Affine3d::Identity ();
+        Eigen::Affine3d _icp_goal = Eigen::Affine3d::Identity ();
         Eigen::Matrix4f _guess_tf;
         tf2::Stamped<tf2::Transform> _tf_las_master_to_base;
         tf2::Stamped<tf2::Transform> _tf_las_slave_to_base;
