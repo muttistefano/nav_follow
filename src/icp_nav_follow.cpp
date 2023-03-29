@@ -464,9 +464,9 @@ void icp_nav_follow_class::init_control()
     this->get_tf_goal();
     this->get_tf_laser_base_master();
     this->get_tf_laser_base_slave();
-    // _th_follow = std::thread(&icp_nav_follow_class::tf_follow_thread, this);
+    _th_follow = std::thread(&icp_nav_follow_class::tf_follow_thread, this);
 
-    _th_pcl    = std::thread(&icp_nav_follow_class::current_pcl_thread, this);
+    // _th_pcl    = std::thread(&icp_nav_follow_class::current_pcl_thread, this);
 }
 
 void icp_nav_follow_class::save_icp_goal(const std::shared_ptr<std_srvs::srv::Trigger::Request> request,
@@ -476,9 +476,6 @@ void icp_nav_follow_class::save_icp_goal(const std::shared_ptr<std_srvs::srv::Tr
     Eigen::Affine3d laser_base_slave  = tf2::transformToEigen(_tf_laser_base_slave);
     Eigen::Affine3d laser_base_master = tf2::transformToEigen(_tf_laser_base_master);
     Eigen::Affine3d goal_tmp = laser_base_slave.inverse() * _icp_current * laser_base_master;
-    // goal_tmp.col(2).setZero();
-    // goal_tmp.row(2).setZero();
-    // goal_tmp(2,2)   = 1.0;
     _icp_goal =  goal_tmp;
     response->success = true;
     RCLCPP_WARN_STREAM(this->get_logger(),"icp control goal saved : \n" << _icp_goal.matrix());
