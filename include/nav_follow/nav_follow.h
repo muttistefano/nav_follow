@@ -9,8 +9,6 @@
 #include <pcl/point_cloud.h>
 #include <pcl/filters/extract_indices.h>
 #include <geometry_msgs/msg/point32.hpp>
-// #include <icp_nav_follow/save_pcl.h>
-// #include <icp_nav_follow/move_to_pcl.h>
 #include <pcl/registration/transformation_estimation_2D.h>
 #include <pcl/registration/icp.h>
 #include <pcl/point_types.h>
@@ -35,38 +33,24 @@
 #include <pcl_conversions/pcl_conversions.h>
 #include <tf2_eigen/tf2_eigen.hpp>
 #include <std_srvs/srv/trigger.hpp>
-
+#include "nav_follow_parameters.hpp"
 
 // constexpr int   LASER_SCAN_FILTER_LENGTH   = 3;
 constexpr int   LASER_SCAN_FILTER_LENGTH   = 1;
 // constexpr double FILT_DIST                 = 3.0;
 // constexpr double MIN_DIST                  = 0.3;
 
-class icp_nav_follow_class : public rclcpp::Node
+class nav_follow_class : public rclcpp::Node
 {
     private:
 
         std::mutex   _lock_pcl_master,_lock_pcl_slave;
         std::mutex   _tf_mutex, _icp_mutex;
 
-        int     _icp_iterations;
-        double  _icp_TransformationEpsilon;
-        double  _icp_EuclideanFitnessEpsilon;
-        double  _icp_RANSACOutlierRejectionThreshold;
-        double  _icp_MaxCorrespondenceDistance;
-
         //PARAMS
-        std::string  _laser_scan_master;
-        std::string  _laser_scan_slave;
-        std::string  _frame_name_laser_slave;
-        std::string  _frame_name_laser_master;
-        std::string  _frame_name_base_slave;
-        std::string  _frame_name_base_master;
-        std::string  _cmd_vel_topic;
-        // std::string  _slave_frame,_master_frame;
-        rclcpp::node_interfaces::OnSetParametersCallbackHandle::SharedPtr dyn_params_handler_;
-        rcl_interfaces::msg::SetParametersResult dynamicParametersCallback(std::vector<rclcpp::Parameter> parameters);
         
+        std::shared_ptr<nav_follow::ParamListener> param_listener_;
+        nav_follow::Params _params;
 
         //ROS
 
@@ -105,7 +89,7 @@ class icp_nav_follow_class : public rclcpp::Node
         tf2::Stamped<tf2::Transform> _tf_las_master_to_base;
         tf2::Stamped<tf2::Transform> _tf_las_slave_to_base;
         
-        std::string _path = ament_index_cpp::get_package_share_directory("icp_nav_follow");
+        // std::string _path = ament_index_cpp::get_package_share_directory("nav_follow");
         int siz_s,siz_m;
         bool _icp_controlling = false;
 
@@ -139,7 +123,7 @@ class icp_nav_follow_class : public rclcpp::Node
 
     public:
 
-        explicit icp_nav_follow_class();
+        explicit nav_follow_class();
 
         void LasCallback_master(const sensor_msgs::msg::LaserScan::ConstSharedPtr& msg);
         void LasCallback_slave(const sensor_msgs::msg::LaserScan::ConstSharedPtr& msg);

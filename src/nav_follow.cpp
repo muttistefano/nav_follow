@@ -1,4 +1,4 @@
-#include <icp_nav_follow/icp_nav_follow.h>
+#include <nav_follow/nav_follow.h>
 
 
 using namespace boost::assign;
@@ -11,7 +11,7 @@ inline bool exists_file (const std::string& name) {
     return ( access( name.c_str(), F_OK ) != -1 );
 }
 
-void icp_nav_follow_class::LasCallback_master(const sensor_msgs::msg::LaserScan::ConstSharedPtr& msg)
+void nav_follow_class::LasCallback_master(const sensor_msgs::msg::LaserScan::ConstSharedPtr& msg)
 {
     geometry_msgs::msg::Point32 pnt;
     pnt.z = 0;
@@ -33,7 +33,7 @@ void icp_nav_follow_class::LasCallback_master(const sensor_msgs::msg::LaserScan:
         _NewPcl_master.points.push_back(_pnt_filt_master);
     }
    
-    _NewPcl_master.header.frame_id = _frame_name_laser_master;
+    _NewPcl_master.header.frame_id = _params.frame_name_laser_master;
     _NewPcl_master.header.stamp    = this->get_clock()->now();
 
     _pcl_buffer_master.push_back(_NewPcl_master);
@@ -41,7 +41,7 @@ void icp_nav_follow_class::LasCallback_master(const sensor_msgs::msg::LaserScan:
 
 }
 
-void icp_nav_follow_class::LasCallback_slave(const sensor_msgs::msg::LaserScan::ConstSharedPtr& msg)
+void nav_follow_class::LasCallback_slave(const sensor_msgs::msg::LaserScan::ConstSharedPtr& msg)
 {
     geometry_msgs::msg::Point32 pnt;
     pnt.z = 0;
@@ -63,7 +63,7 @@ void icp_nav_follow_class::LasCallback_slave(const sensor_msgs::msg::LaserScan::
         _NewPcl_slave.points.push_back(_pnt_filt_slave);
     }
    
-    _NewPcl_slave.header.frame_id = _frame_name_laser_slave;
+    _NewPcl_slave.header.frame_id = _params.frame_name_laser_slave;
     _NewPcl_slave.header.stamp    = this->get_clock()->now();
 
     _pcl_buffer_slave.push_back(_NewPcl_slave);
@@ -71,7 +71,7 @@ void icp_nav_follow_class::LasCallback_slave(const sensor_msgs::msg::LaserScan::
 
 }
 
-void icp_nav_follow_class::current_pcl_thread()
+void nav_follow_class::current_pcl_thread()
 {
 
     while(rclcpp::ok())
@@ -221,8 +221,8 @@ void icp_nav_follow_class::current_pcl_thread()
         pcl::toROSMsg(*_cloud_slave, *pc2_msg_slave);
         pcl::toROSMsg(*_cloud_master, *pc2_msg_master);
 
-        pc2_msg_slave->header.frame_id = _frame_name_laser_slave;
-        pc2_msg_master->header.frame_id = _frame_name_laser_master;
+        pc2_msg_slave->header.frame_id = _params.frame_name_laser_slave;
+        pc2_msg_master->header.frame_id = _params.frame_name_laser_master;
 
         pc2_msg_master->header.stamp = now();
         pc2_msg_slave->header.stamp = now();
@@ -236,11 +236,11 @@ void icp_nav_follow_class::current_pcl_thread()
 
         }
 
-        _icp.setMaximumIterations (_icp_iterations);
-        _icp.setTransformationEpsilon (_icp_TransformationEpsilon);
-        _icp.setEuclideanFitnessEpsilon (_icp_EuclideanFitnessEpsilon);
-        _icp.setRANSACOutlierRejectionThreshold (_icp_RANSACOutlierRejectionThreshold);
-        _icp.setMaxCorrespondenceDistance(_icp_MaxCorrespondenceDistance);
+        _icp.setMaximumIterations (_params.icp_iterations);
+        _icp.setTransformationEpsilon (_params.icp_TransformationEpsilon);
+        _icp.setEuclideanFitnessEpsilon (_params.icp_EuclideanFitnessEpsilon);
+        _icp.setRANSACOutlierRejectionThreshold (_params.icp_RANSACOutlierRejectionThreshold);
+        _icp.setMaxCorrespondenceDistance(_params.icp_MaxCorrespondenceDistance);
 
 
         //TODO WRONG guess, guess to laser not base footprint
@@ -251,7 +251,7 @@ void icp_nav_follow_class::current_pcl_thread()
             // RCLCPP_INFO_STREAM(this->get_logger(),_guess_tf);
             _icp.align (*_cloud_master,_guess_tf.inverse());
             pcl::toROSMsg(*_cloud_master, *pc2_reg);
-            pc2_reg->header.frame_id = _frame_name_laser_slave;
+            pc2_reg->header.frame_id = _params.frame_name_laser_slave;
             pc2_reg->header.stamp = now();
             _pcl_reg_pub->publish(*pc2_reg);
             // TransformationEstimation2D<pcl::PointXYZ, pcl::PointXYZ> pd;
@@ -269,7 +269,7 @@ void icp_nav_follow_class::current_pcl_thread()
 
 
         geometry_msgs::msg::WrenchStamped wrench_out;
-        wrench_out.header.frame_id = _frame_name_laser_slave;
+        wrench_out.header.frame_id = _params.frame_name_laser_slave;
         wrench_out.header.stamp    = this->get_clock()->now();
         wrench_out.wrench.force.x  = _icp_current(0,3);
         wrench_out.wrench.force.y  = _icp_current(1,3);
@@ -328,37 +328,37 @@ void icp_nav_follow_class::current_pcl_thread()
     }
 }
 
-void icp_nav_follow_class::current_tf_thread()
+void nav_follow_class::current_tf_thread()
 {
     while(rclcpp::ok())
     {
         try {
             std::scoped_lock<std::mutex> guard_tf(_tf_mutex);
             _tf_master_slave = _tf_buffer->lookupTransform(
-            _frame_name_base_master, _frame_name_base_slave,
+            _params.frame_name_base_master, _params.frame_name_base_slave,
             tf2::TimePointZero);
         } catch (const tf2::TransformException & ex) {
             RCLCPP_INFO(
             this->get_logger(), "Could not transform %s to %s: %s",
-            _frame_name_base_master.c_str(), _frame_name_base_slave.c_str(), ex.what());
+            _params.frame_name_base_master.c_str(), _params.frame_name_base_slave.c_str(), ex.what());
         }
         // std::this_thread::sleep_for(50ms);
         _rate_tf->sleep();
     }
 }
 
-void icp_nav_follow_class::get_tf_goal()
+void nav_follow_class::get_tf_goal()
 {
     //TODO spin_once ??
     tf2::Stamped<tf2::Transform> stamped_transform;
-    while(!_tf_buffer->canTransform(_frame_name_base_master, _frame_name_base_slave, tf2::TimePointZero, 2000ms) && rclcpp::ok()) {
+    while(!_tf_buffer->canTransform(_params.frame_name_base_master, _params.frame_name_base_slave, tf2::TimePointZero, 2000ms) && rclcpp::ok()) {
       RCLCPP_INFO(
                     get_logger(), "waiting 2000 ms for %s->%s transform to become available",
-                    _frame_name_base_master.c_str(), _frame_name_base_slave.c_str());
+                    _params.frame_name_base_master.c_str(), _params.frame_name_base_slave.c_str());
       std::this_thread::sleep_for(200ms);
     }
     _tf_goal_msg = _tf_buffer->lookupTransform(
-            _frame_name_base_master, _frame_name_base_slave,
+            _params.frame_name_base_master, _params.frame_name_base_slave,
             tf2::TimePointZero);
 
     tf2::fromMsg(_tf_goal_msg, _tf_goal_transform);
@@ -366,42 +366,42 @@ void icp_nav_follow_class::get_tf_goal()
     RCLCPP_INFO(get_logger(), "Initial transformation stored");
 }
 
-void icp_nav_follow_class::get_tf_laser_base_master()
+void nav_follow_class::get_tf_laser_base_master()
 {
     //TODO spin_once ??
     tf2::Stamped<tf2::Transform> stamped_transform;
-    while(!_tf_buffer->canTransform(_frame_name_laser_master, _frame_name_base_master, tf2::TimePointZero, 2000ms) && rclcpp::ok()) {
+    while(!_tf_buffer->canTransform(_params.frame_name_laser_master, _params.frame_name_base_master, tf2::TimePointZero, 2000ms) && rclcpp::ok()) {
       RCLCPP_INFO(
                     get_logger(), "waiting 2000 ms for %s->%s transform to become available",
-                    _frame_name_laser_master.c_str(), _frame_name_base_master.c_str());
+                    _params.frame_name_laser_master.c_str(), _params.frame_name_base_master.c_str());
       std::this_thread::sleep_for(200ms);
     }
     _tf_laser_base_master = _tf_buffer->lookupTransform(
-            _frame_name_laser_master, _frame_name_base_master,
+            _params.frame_name_laser_master, _params.frame_name_base_master,
             tf2::TimePointZero);
 
     RCLCPP_INFO(get_logger(), "Initial transformation stored");
 }
 
-void icp_nav_follow_class::get_tf_laser_base_slave()
+void nav_follow_class::get_tf_laser_base_slave()
 {
     //TODO spin_once ??
     tf2::Stamped<tf2::Transform> stamped_transform;
-    while(!_tf_buffer->canTransform(_frame_name_laser_slave, _frame_name_base_slave, tf2::TimePointZero, 2000ms) && rclcpp::ok()) {
+    while(!_tf_buffer->canTransform(_params.frame_name_laser_slave, _params.frame_name_base_slave, tf2::TimePointZero, 2000ms) && rclcpp::ok()) {
       RCLCPP_INFO(
                     get_logger(), "waiting 2000 ms for %s->%s transform to become available",
-                    _frame_name_laser_slave.c_str(), _frame_name_base_slave.c_str());
+                    _params.frame_name_laser_slave.c_str(), _params.frame_name_base_slave.c_str());
       std::this_thread::sleep_for(200ms);
     }
     _tf_laser_base_slave = _tf_buffer->lookupTransform(
-            _frame_name_laser_slave,_frame_name_base_slave ,
+            _params.frame_name_laser_slave,_params.frame_name_base_slave ,
             tf2::TimePointZero);
 
 
     RCLCPP_INFO(get_logger(), "Initial transformation stored");
 }
 
-void icp_nav_follow_class::tf_follow_thread()
+void nav_follow_class::tf_follow_thread()
 {
 
     tf2::Stamped<tf2::Transform> stamped_transform_now;
@@ -443,7 +443,7 @@ void icp_nav_follow_class::tf_follow_thread()
     }
 }
 
-void icp_nav_follow_class::init_control()
+void nav_follow_class::init_control()
 {
     _x_pid = std::make_unique<control_toolbox::PidROS>(this->shared_from_this(),"x_pid");
     _y_pid = std::make_unique<control_toolbox::PidROS>(this->shared_from_this(),"y_pid");
@@ -464,12 +464,12 @@ void icp_nav_follow_class::init_control()
     this->get_tf_goal();
     this->get_tf_laser_base_master();
     this->get_tf_laser_base_slave();
-    _th_follow = std::thread(&icp_nav_follow_class::tf_follow_thread, this);
+    _th_follow = std::thread(&nav_follow_class::tf_follow_thread, this);
 
-    // _th_pcl    = std::thread(&icp_nav_follow_class::current_pcl_thread, this);
+    // _th_pcl    = std::thread(&nav_follow_class::current_pcl_thread, this);
 }
 
-void icp_nav_follow_class::save_icp_goal(const std::shared_ptr<std_srvs::srv::Trigger::Request> request,
+void nav_follow_class::save_icp_goal(const std::shared_ptr<std_srvs::srv::Trigger::Request> request,
           std::shared_ptr<std_srvs::srv::Trigger::Response>      response)
 {
     std::scoped_lock<std::mutex> guard_icp(_icp_mutex);
@@ -481,7 +481,7 @@ void icp_nav_follow_class::save_icp_goal(const std::shared_ptr<std_srvs::srv::Tr
     RCLCPP_WARN_STREAM(this->get_logger(),"icp control goal saved : \n" << _icp_goal.matrix());
 }
 
-void icp_nav_follow_class::start_icp_goal(const std::shared_ptr<std_srvs::srv::Trigger::Request> request,
+void nav_follow_class::start_icp_goal(const std::shared_ptr<std_srvs::srv::Trigger::Request> request,
           std::shared_ptr<std_srvs::srv::Trigger::Response>      response)
 {
     _x_pid_icp->reset();
@@ -492,7 +492,7 @@ void icp_nav_follow_class::start_icp_goal(const std::shared_ptr<std_srvs::srv::T
     RCLCPP_WARN(this->get_logger(),"Starting icp control");
 }
 
-void icp_nav_follow_class::stop_icp_goal(const std::shared_ptr<std_srvs::srv::Trigger::Request> request,
+void nav_follow_class::stop_icp_goal(const std::shared_ptr<std_srvs::srv::Trigger::Request> request,
           std::shared_ptr<std_srvs::srv::Trigger::Response>      response)
 {
     _x_pid_icp->reset();
@@ -503,39 +503,16 @@ void icp_nav_follow_class::stop_icp_goal(const std::shared_ptr<std_srvs::srv::Tr
     RCLCPP_WARN(this->get_logger(),"Stopping icp control");
 }
 
-icp_nav_follow_class::icp_nav_follow_class():
-Node("icp_nav_follow")
+nav_follow_class::nav_follow_class():
+Node("nav_follow")
 {
 
-    this->declare_parameter("laser_scan_master"                       , rclcpp::ParameterValue(std::string("")));
-    this->declare_parameter("laser_scan_slave"                        , rclcpp::ParameterValue(std::string("")));
-    this->declare_parameter("frame_name_laser_slave"                  , rclcpp::ParameterValue(std::string("")));
-    this->declare_parameter("frame_name_laser_master"                 , rclcpp::ParameterValue(std::string("")));
-    this->declare_parameter("frame_name_base_slave"                   , rclcpp::ParameterValue(std::string("")));
-    this->declare_parameter("frame_name_base_master"                  , rclcpp::ParameterValue(std::string("")));
-    this->declare_parameter("cmd_vel_topic"                           , rclcpp::ParameterValue(std::string("")));
-    this->declare_parameter("icp_iterations"                          , rclcpp::ParameterValue(0));
-    this->declare_parameter("icp_TransformationEpsilon"               , rclcpp::ParameterValue(0.0));
-    this->declare_parameter("icp_EuclideanFitnessEpsilon"             , rclcpp::ParameterValue(0.0));
-    this->declare_parameter("icp_RANSACOutlierRejectionThreshold"     , rclcpp::ParameterValue(0.0));
-    this->declare_parameter("icp_MaxCorrespondenceDistance"           , rclcpp::ParameterValue(0.0));
-
-    _laser_scan_master       = this->get_parameter("laser_scan_master").get_parameter_value().get<std::string>();
-    _laser_scan_slave        = this->get_parameter("laser_scan_slave").get_parameter_value().get<std::string>();
-    _frame_name_laser_slave  = this->get_parameter("frame_name_laser_slave").get_parameter_value().get<std::string>();
-    _frame_name_laser_master = this->get_parameter("frame_name_laser_master").get_parameter_value().get<std::string>();
-    _frame_name_base_slave   = this->get_parameter("frame_name_base_slave").get_parameter_value().get<std::string>();
-    _frame_name_base_master  = this->get_parameter("frame_name_base_master").get_parameter_value().get<std::string>();
-    _cmd_vel_topic           = this->get_parameter("cmd_vel_topic").get_parameter_value().get<std::string>();
-    
-
-    _icp_iterations                      = this->get_parameter("icp_iterations"                     ).get_parameter_value().get<int>();
-    _icp_TransformationEpsilon           = this->get_parameter("icp_TransformationEpsilon"          ).get_parameter_value().get<double>();
-    _icp_EuclideanFitnessEpsilon         = this->get_parameter("icp_EuclideanFitnessEpsilon"        ).get_parameter_value().get<double>();
-    _icp_RANSACOutlierRejectionThreshold = this->get_parameter("icp_RANSACOutlierRejectionThreshold").get_parameter_value().get<double>();
-    _icp_MaxCorrespondenceDistance       = this->get_parameter("icp_MaxCorrespondenceDistance"      ).get_parameter_value().get<double>();
-
-    dyn_params_handler_ = this->add_on_set_parameters_callback(std::bind(&icp_nav_follow_class::dynamicParametersCallback, this, std::placeholders::_1));
+    param_listener_ = std::make_shared<nav_follow::ParamListener>(shared_from_this());
+    if (!param_listener_)
+    {
+        RCLCPP_FATAL(this->get_logger(), "Error encountered during init");
+    }
+    _params = param_listener_->get_params();
 
     _tf_buffer = std::make_unique<tf2_ros::Buffer>(this->get_clock());
     _tf_listener = std::make_shared<tf2_ros::TransformListener>(*_tf_buffer);
@@ -543,14 +520,12 @@ Node("icp_nav_follow")
     _pcl_buffer_master = boost::circular_buffer<sensor_msgs::msg::PointCloud> (LASER_SCAN_FILTER_LENGTH);
     _pcl_buffer_slave  = boost::circular_buffer<sensor_msgs::msg::PointCloud> (LASER_SCAN_FILTER_LENGTH);
 
-    _sub_master = this->create_subscription<sensor_msgs::msg::LaserScan>(
-    _laser_scan_master, rclcpp::SensorDataQoS(), std::bind(&icp_nav_follow_class::LasCallback_master, this, std::placeholders::_1));
+    _sub_master = this->create_subscription<sensor_msgs::msg::LaserScan>(_params.laser_scan_master, rclcpp::SensorDataQoS(), std::bind(&nav_follow_class::LasCallback_master, this, std::placeholders::_1));
 
-    _sub_slave = this->create_subscription<sensor_msgs::msg::LaserScan>(
-    _laser_scan_slave, rclcpp::SensorDataQoS(), std::bind(&icp_nav_follow_class::LasCallback_slave, this, std::placeholders::_1));
+    _sub_slave = this->create_subscription<sensor_msgs::msg::LaserScan>(_params.laser_scan_slave, rclcpp::SensorDataQoS(), std::bind(&nav_follow_class::LasCallback_slave, this, std::placeholders::_1));
 
     _vis_pub     = this->create_publisher<geometry_msgs::msg::WrenchStamped>("wrench", 1);
-    _cmd_vel     = this->create_publisher<geometry_msgs::msg::Twist>(_cmd_vel_topic, 1);
+    _cmd_vel     = this->create_publisher<geometry_msgs::msg::Twist>(_params.cmd_vel_topic, 1);
 
     _pcl_master_pub = this->create_publisher<sensor_msgs::msg::PointCloud2>("master_pcl", 1);
     _pcl_reg_pub    = this->create_publisher<sensor_msgs::msg::PointCloud2>("reg_pcl", 1);
@@ -559,50 +534,14 @@ Node("icp_nav_follow")
     _rate_tf     = std::make_unique<rclcpp::Rate>(20);
     _rate_follow = std::make_unique<rclcpp::Rate>(20);
 
-    _th_tf     = std::thread(&icp_nav_follow_class::current_tf_thread, this);
+    _th_tf     = std::thread(&nav_follow_class::current_tf_thread, this);
 
-    _save_icp_goal_srv  = this->create_service<std_srvs::srv::Trigger>("save_icp_goal" , std::bind(&icp_nav_follow_class::save_icp_goal , this, std::placeholders::_1,std::placeholders::_2));
-    _start_icp_goal_srv = this->create_service<std_srvs::srv::Trigger>("start_icp_goal", std::bind(&icp_nav_follow_class::start_icp_goal, this, std::placeholders::_1,std::placeholders::_2));
-    _stop_icp_goal_srv  = this->create_service<std_srvs::srv::Trigger>("stop_icp_goal" , std::bind(&icp_nav_follow_class::stop_icp_goal , this, std::placeholders::_1,std::placeholders::_2));
-
-}
-
-rcl_interfaces::msg::SetParametersResult
-icp_nav_follow_class::dynamicParametersCallback(std::vector<rclcpp::Parameter> parameters)
-{
-    rcl_interfaces::msg::SetParametersResult result;
-
-    for (const auto parameter : parameters) {
-
-        const auto & type = parameter.get_type();
-        const auto & name = parameter.get_name();
-
-        if (type == rcl_interfaces::msg::ParameterType::PARAMETER_DOUBLE) {
-        if (name == "icp_TransformationEpsilon") {
-            RCLCPP_INFO_STREAM(this->get_logger(),"UPDATING icp_TransformationEpsilon" << parameter.as_double());
-            _icp_TransformationEpsilon = parameter.as_double();
-        } else if (name == "icp_EuclideanFitnessEpsilon") {
-            RCLCPP_INFO_STREAM(this->get_logger(),"UPDATING icp_EuclideanFitnessEpsilon" << parameter.as_double());
-            _icp_EuclideanFitnessEpsilon = parameter.as_double();
-        } else if (name == "icp_RANSACOutlierRejectionThreshold") {
-            RCLCPP_INFO_STREAM(this->get_logger(),"UPDATING icp_RANSACOutlierRejectionThreshold" << parameter.as_double());
-            _icp_RANSACOutlierRejectionThreshold = parameter.as_double();
-        } else if (name == "icp_MaxCorrespondenceDistance") {
-            RCLCPP_INFO_STREAM(this->get_logger(),"UPDATING icp_MaxCorrespondenceDistance" << parameter.as_double());
-            _icp_MaxCorrespondenceDistance = parameter.as_double();
-        }
-        }
-        if (type == rcl_interfaces::msg::ParameterType::PARAMETER_INTEGER) {
-        if (name == "icp_iterations") {
-            RCLCPP_INFO_STREAM(this->get_logger(),"UPDATING icp_iterations" << parameter.as_int());
-            _icp_iterations = parameter.as_int();
-        } 
-        }
-    }
-    result.successful = true;
-    return result;
+    _save_icp_goal_srv  = this->create_service<std_srvs::srv::Trigger>("save_icp_goal" , std::bind(&nav_follow_class::save_icp_goal , this, std::placeholders::_1,std::placeholders::_2));
+    _start_icp_goal_srv = this->create_service<std_srvs::srv::Trigger>("start_icp_goal", std::bind(&nav_follow_class::start_icp_goal, this, std::placeholders::_1,std::placeholders::_2));
+    _stop_icp_goal_srv  = this->create_service<std_srvs::srv::Trigger>("stop_icp_goal" , std::bind(&nav_follow_class::stop_icp_goal , this, std::placeholders::_1,std::placeholders::_2));
 
 }
+
 
 int main(int argc, char **argv)
 {
@@ -610,7 +549,7 @@ int main(int argc, char **argv)
     rclcpp::init(argc, argv);
     rclcpp::executors::MultiThreadedExecutor executor;
     // rclcpp::executors::StaticSingleThreadedExecutor executor;
-    auto nodeState    = std::make_shared<icp_nav_follow_class>();
+    auto nodeState    = std::make_shared<nav_follow_class>();
     nodeState->init_control();
     executor.add_node(nodeState);
     executor.spin();

@@ -1,6 +1,7 @@
 cmake_minimum_required(VERSION 3.5)
-project(icp_nav_follow)
+project(nav_follow)
 
+add_compile_options(-std=c++17)
 
 
 find_package(PCL REQUIRED COMPONENTS common io registration)
@@ -16,10 +17,7 @@ find_package(tf2_geometry_msgs REQUIRED)
 find_package(control_toolbox REQUIRED)
 find_package(pcl_conversions REQUIRED)
 find_package(std_srvs REQUIRED)
-
-
-add_compile_options(-std=c++17)
-
+find_package(generate_parameter_library REQUIRED)
 
 
 include_directories(
@@ -41,13 +39,20 @@ set(dependencies
   std_srvs
 )
 
-add_executable(${PROJECT_NAME}_node src/icp_nav_follow.cpp)
+generate_parameter_library(
+  nav_follow_parameters 
+  src/nav_follow_parameters.yaml 
+)
+
+
+add_executable(${PROJECT_NAME}_node src/nav_follow.cpp)
 ament_target_dependencies(${PROJECT_NAME}_node ${dependencies})
 
 
 target_link_libraries(${PROJECT_NAME}_node
 ${PCL_LIBRARIES}
 ${PCL_LIBRARY_DIRS}
+nav_follow_parameters 
 )
 
 install(TARGETS ${PROJECT_NAME}_node

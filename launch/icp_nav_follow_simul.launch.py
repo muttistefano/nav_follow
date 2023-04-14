@@ -18,16 +18,16 @@ def generate_launch_description():
         description='log level'))
 
     config = os.path.join(
-        get_package_share_directory('icp_nav_follow'),
+        get_package_share_directory('nav_follow'),
         'config',
         'pid.yaml'
         )
 
     node1 = [Node(
-                package='icp_nav_follow',
-                executable='icp_nav_follow_node',
+                package='nav_follow',
+                executable='nav_follow_node',
                 namespace="sweepee_2",
-                output='screen',
+                # output='screen',
                 # prefix=['xterm -e gdb -ex run --args'],
                 # prefix=['valgrind --tool=memcheck --leak-check=yes --show-reachable=yes '],
                 arguments=['--ros-args', '--log-level', log_level],
@@ -47,8 +47,8 @@ def generate_launch_description():
                             config])]
 
     node2 = [Node(
-                package='icp_nav_follow',
-                executable='icp_nav_follow_node',
+                package='nav_follow',
+                executable='nav_follow_node',
                 output='screen',
                 namespace="sweepee_3",
                 # prefix=['xterm -e gdb -ex run --args'],

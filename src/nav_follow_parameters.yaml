@@ -1,0 +1,83 @@
+nav_follow:
+  laser_scan_master: {
+    type: string,
+    default_value: "",
+    read_only: true,
+    description: "Name of the laser_scan topic of the master ",
+    validation: {
+      not_empty<>: []
+    }
+  }
+  frame_name_laser_master: {
+    type: string,
+    default_value: "",
+    read_only: true,
+    description: "Name of the frame associated to the master laser ",
+  }
+  frame_name_base_master: {
+    type: string,
+    default_value: "",
+    read_only: true,
+    description: "Name of the frame associated to the master mobile robot ",
+  }
+  laser_scan_slave: {
+    type: string,
+    default_value: "",
+    read_only: true,
+    description: "Name of the laser_scan topic of the follower ",
+  }
+  frame_name_laser_slave: {
+    type: string,
+    default_value: "",
+    read_only: true,
+    description: "Name of the frame associated to the follower laser ",
+  }
+  frame_name_base_slave: {
+    type: string,
+    default_value: "",
+    read_only: true,
+    description: "Name of the frame associated to the follower mobile robot",
+  }
+  cmd_vel_topic: {
+    type: string,
+    default_value: "",
+    read_only: true,
+    description: "Name of the cmd_vel topic of the follower ",
+  }
+  icp_iterations: {
+    type: int,
+    default_value: 5,
+    description: "Number of iterations for the icp algorithm ",
+  }
+  icp_TransformationEpsilon: {
+    type: double,
+    default_value: 5,
+    description: "Refer to libPCL docs ",
+  }
+  icp_EuclideanFitnessEpsilon: {
+    type: double,
+    default_value: 5,
+    description: "Refer to libPCL docs ",
+  }
+  icp_RANSACOutlierRejectionThreshold: {
+    type: double,
+    default_value: 5,
+    description: "Refer to libPCL docs ",
+  }
+  icp_MaxCorrespondenceDistance: {
+    type: double,
+    default_value: 5,
+    description: "Refer to libPCL docs ",
+  }
+  enable_vel_feedforward: {
+    type: bool,
+    default_value: False,
+    description: "Enable the feedforward control using the master cmd_vel transported on the follower frame ",
+  }
+  enable_icp: {
+    type: bool,
+    default_value: False,
+    description: "Enable the control using the ICP between laser scanners",
+  }
+
+

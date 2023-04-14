@@ -34,7 +34,10 @@
                 "/opt/ros/rolling/include/pcl_msgs",
                 "/opt/ros/rolling/include/tf2_eigen",
                 "/opt/ros/rolling/include/realtime_tools",
-                "/opt/ros/rolling/include/std_srvs"
+                "/opt/ros/rolling/include/std_srvs",
+                "/opt/ros/rolling/include/service_msgs",
+                "/opt/ros/rolling/include/control_toolbox",
+                "${workspaceFolder}/include"
             ],
             "defines": [],
             "compilerPath": "/usr/bin/gcc",
