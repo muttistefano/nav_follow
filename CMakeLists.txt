@@ -18,7 +18,7 @@ find_package(control_toolbox REQUIRED)
 find_package(pcl_conversions REQUIRED)
 find_package(std_srvs REQUIRED)
 find_package(generate_parameter_library REQUIRED)
-
+find_package(rclcpp_lifecycle REQUIRED)
 
 include_directories(
   include
@@ -36,6 +36,7 @@ set(dependencies
   tf2_eigen
   tf2_ros
   pcl_conversions
+  rclcpp_lifecycle
   std_srvs
 )
 
@@ -45,7 +46,11 @@ generate_parameter_library(
 )
 
 
-add_executable(${PROJECT_NAME}_node src/nav_follow.cpp)
+add_executable(${PROJECT_NAME}_node 
+src/nav_follow_tf.cpp
+src/nav_follow_icp.cpp
+src/nav_follow_node.cpp
+)
 ament_target_dependencies(${PROJECT_NAME}_node ${dependencies})
 
 

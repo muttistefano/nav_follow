@@ -43,7 +43,11 @@ def generate_launch_description():
                             {"icp_EuclideanFitnessEpsilon"        : 1.0},
                             {"icp_RANSACOutlierRejectionThreshold": 1.5},
                             {"icp_MaxCorrespondenceDistance"      : 100.0},
-                            {"use_sim_time"                       : True},
+                            {"use_sim_time"                       : True},                
+                            {"enable_tf"                          : True},
+                            {"enable_vel_feedforward"             : False},
+                            {"enable_icp"                         : False}, 
+
                             config])]
 
     node2 = [Node(
@@ -69,4 +73,4 @@ def generate_launch_description():
                             {"use_sim_time"                       : True},
                             config])]
 
-    return LaunchDescription(declared_arguments + node1 + node2 )
+    return LaunchDescription(declared_arguments + node1  )

@@ -44,6 +44,24 @@ nav_follow:
     read_only: true,
     description: "Name of the cmd_vel topic of the follower ",
   }
+  enable_tf: {
+    type: bool,
+    default_value: False,
+    read_only: true,
+    description: "Enable the tf based PID control",
+  }
+  enable_vel_feedforward: {
+    type: bool,
+    default_value: False,
+    read_only: true,
+    description: "Enable the feedforward control using the master cmd_vel transported on the follower frame ",
+  }
+  enable_icp: {
+    type: bool,
+    default_value: False,
+    read_only: true,
+    description: "Enable the control using the ICP between laser scanners",
+  }
   icp_iterations: {
     type: int,
     default_value: 5,
@@ -69,15 +87,6 @@ nav_follow:
     default_value: 5,
     description: "Refer to libPCL docs ",
   }
-  enable_vel_feedforward: {
-    type: bool,
-    default_value: False,
-    description: "Enable the feedforward control using the master cmd_vel transported on the follower frame ",
-  }
-  enable_icp: {
-    type: bool,
-    default_value: False,
-    description: "Enable the control using the ICP between laser scanners",
-  }
+
 
 

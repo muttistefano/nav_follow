@@ -7,9 +7,7 @@ using namespace pcl::registration;
 using namespace std::chrono_literals;
 
 
-inline bool exists_file (const std::string& name) {
-    return ( access( name.c_str(), F_OK ) != -1 );
-}
+
 
 void nav_follow_class::LasCallback_master(const sensor_msgs::msg::LaserScan::ConstSharedPtr& msg)
 {
@@ -124,7 +122,7 @@ void nav_follow_class::current_pcl_thread()
     double outy;
     double outz;
 
-    while(rclcpp::ok())
+    while(rclcpp::ok() && this->_icp_controlling)
     {
 
         std::future<void> slave_pcl = std::async(std::launch::async, 
@@ -328,44 +326,6 @@ void nav_follow_class::current_pcl_thread()
     }
 }
 
-void nav_follow_class::current_tf_thread()
-{
-    while(rclcpp::ok())
-    {
-        try {
-            std::scoped_lock<std::mutex> guard_tf(_tf_mutex);
-            _tf_master_slave = _tf_buffer->lookupTransform(
-            _params.frame_name_base_master, _params.frame_name_base_slave,
-            tf2::TimePointZero);
-        } catch (const tf2::TransformException & ex) {
-            RCLCPP_INFO(
-            this->get_logger(), "Could not transform %s to %s: %s",
-            _params.frame_name_base_master.c_str(), _params.frame_name_base_slave.c_str(), ex.what());
-        }
-        // std::this_thread::sleep_for(50ms);
-        _rate_tf->sleep();
-    }
-}
-
-void nav_follow_class::get_tf_goal()
-{
-    //TODO spin_once ??
-    tf2::Stamped<tf2::Transform> stamped_transform;
-    while(!_tf_buffer->canTransform(_params.frame_name_base_master, _params.frame_name_base_slave, tf2::TimePointZero, 2000ms) && rclcpp::ok()) {
-      RCLCPP_INFO(
-                    get_logger(), "waiting 2000 ms for %s->%s transform to become available",
-                    _params.frame_name_base_master.c_str(), _params.frame_name_base_slave.c_str());
-      std::this_thread::sleep_for(200ms);
-    }
-    _tf_goal_msg = _tf_buffer->lookupTransform(
-            _params.frame_name_base_master, _params.frame_name_base_slave,
-            tf2::TimePointZero);
-
-    tf2::fromMsg(_tf_goal_msg, _tf_goal_transform);
-
-    RCLCPP_INFO(get_logger(), "Initial transformation stored");
-}
-
 void nav_follow_class::get_tf_laser_base_master()
 {
     //TODO spin_once ??
@@ -401,73 +361,6 @@ void nav_follow_class::get_tf_laser_base_slave()
     RCLCPP_INFO(get_logger(), "Initial transformation stored");
 }
 
-void nav_follow_class::tf_follow_thread()
-{
-
-    tf2::Stamped<tf2::Transform> stamped_transform_now;
-    geometry_msgs::msg::Twist vel_cmd;
-    double x_err,y_err,w_err;
-    double x_cmd,y_cmd,w_cmd;
-
-    while(rclcpp::ok())
-    {
-        {
-            std::scoped_lock<std::mutex> guard_tf(_tf_mutex);
-            tf2::fromMsg(_tf_master_slave, stamped_transform_now);
-        }
-
-        tf2::Transform err =  stamped_transform_now.inverse() * _tf_goal_transform;
-
-        x_err = err.getOrigin().getX();
-        y_err = err.getOrigin().getY();
-
-        double r{}, p{}, y{};
-        tf2::Matrix3x3 m(err.getRotation());
-        m.getRPY(r, p, y);
-        w_err = y;
-
-
-        RCLCPP_INFO_STREAM(get_logger(),"err: " << x_err << " " << y_err << " " << w_err << " " << "\n");
-        //TODO rate to Duration ?
-        auto dt = rclcpp::Duration(50ms);
-        x_cmd = _x_pid->computeCommand(x_err,dt);
-        y_cmd = _y_pid->computeCommand(y_err,dt);
-        w_cmd = _w_pid->computeCommand(w_err,dt);
-        
-        RCLCPP_INFO_STREAM(get_logger(),"cmd: " << x_cmd << " " << y_cmd << " " << w_cmd << " " << "\n");
-        vel_cmd.linear.x  = x_cmd;
-        vel_cmd.linear.y  = y_cmd;
-        vel_cmd.angular.z = w_cmd;
-        _cmd_vel->publish(vel_cmd);
-        _rate_follow->sleep();
-    }
-}
-
-void nav_follow_class::init_control()
-{
-    _x_pid = std::make_unique<control_toolbox::PidROS>(this->shared_from_this(),"x_pid");
-    _y_pid = std::make_unique<control_toolbox::PidROS>(this->shared_from_this(),"y_pid");
-    _w_pid = std::make_unique<control_toolbox::PidROS>(this->shared_from_this(),"w_pid");
-
-    _x_pid->initPid();
-    _y_pid->initPid();
-    _w_pid->initPid();
-
-    _x_pid_icp = std::make_unique<control_toolbox::PidROS>(this->shared_from_this(),"x_pid_icp");
-    _y_pid_icp = std::make_unique<control_toolbox::PidROS>(this->shared_from_this(),"y_pid_icp");
-    _w_pid_icp = std::make_unique<control_toolbox::PidROS>(this->shared_from_this(),"w_pid_icp");
-
-    _x_pid_icp->initPid();
-    _y_pid_icp->initPid();
-    _w_pid_icp->initPid();
-
-    this->get_tf_goal();
-    this->get_tf_laser_base_master();
-    this->get_tf_laser_base_slave();
-    _th_follow = std::thread(&nav_follow_class::tf_follow_thread, this);
-
-    // _th_pcl    = std::thread(&nav_follow_class::current_pcl_thread, this);
-}
 
 void nav_follow_class::save_icp_goal(const std::shared_ptr<std_srvs::srv::Trigger::Request> request,
           std::shared_ptr<std_srvs::srv::Trigger::Response>      response)
@@ -503,57 +396,3 @@ void nav_follow_class::stop_icp_goal(const std::shared_ptr<std_srvs::srv::Trigge
     RCLCPP_WARN(this->get_logger(),"Stopping icp control");
 }
 
-nav_follow_class::nav_follow_class():
-Node("nav_follow")
-{
-
-    param_listener_ = std::make_shared<nav_follow::ParamListener>(shared_from_this());
-    if (!param_listener_)
-    {
-        RCLCPP_FATAL(this->get_logger(), "Error encountered during init");
-    }
-    _params = param_listener_->get_params();
-
-    _tf_buffer = std::make_unique<tf2_ros::Buffer>(this->get_clock());
-    _tf_listener = std::make_shared<tf2_ros::TransformListener>(*_tf_buffer);
-
-    _pcl_buffer_master = boost::circular_buffer<sensor_msgs::msg::PointCloud> (LASER_SCAN_FILTER_LENGTH);
-    _pcl_buffer_slave  = boost::circular_buffer<sensor_msgs::msg::PointCloud> (LASER_SCAN_FILTER_LENGTH);
-
-    _sub_master = this->create_subscription<sensor_msgs::msg::LaserScan>(_params.laser_scan_master, rclcpp::SensorDataQoS(), std::bind(&nav_follow_class::LasCallback_master, this, std::placeholders::_1));
-
-    _sub_slave = this->create_subscription<sensor_msgs::msg::LaserScan>(_params.laser_scan_slave, rclcpp::SensorDataQoS(), std::bind(&nav_follow_class::LasCallback_slave, this, std::placeholders::_1));
-
-    _vis_pub     = this->create_publisher<geometry_msgs::msg::WrenchStamped>("wrench", 1);
-    _cmd_vel     = this->create_publisher<geometry_msgs::msg::Twist>(_params.cmd_vel_topic, 1);
-
-    _pcl_master_pub = this->create_publisher<sensor_msgs::msg::PointCloud2>("master_pcl", 1);
-    _pcl_reg_pub    = this->create_publisher<sensor_msgs::msg::PointCloud2>("reg_pcl", 1);
-    _pcl_slave_pub  = this->create_publisher<sensor_msgs::msg::PointCloud2>("slave_pcl" , 1);
-
-    _rate_tf     = std::make_unique<rclcpp::Rate>(20);
-    _rate_follow = std::make_unique<rclcpp::Rate>(20);
-
-    _th_tf     = std::thread(&nav_follow_class::current_tf_thread, this);
-
-    _save_icp_goal_srv  = this->create_service<std_srvs::srv::Trigger>("save_icp_goal" , std::bind(&nav_follow_class::save_icp_goal , this, std::placeholders::_1,std::placeholders::_2));
-    _start_icp_goal_srv = this->create_service<std_srvs::srv::Trigger>("start_icp_goal", std::bind(&nav_follow_class::start_icp_goal, this, std::placeholders::_1,std::placeholders::_2));
-    _stop_icp_goal_srv  = this->create_service<std_srvs::srv::Trigger>("stop_icp_goal" , std::bind(&nav_follow_class::stop_icp_goal , this, std::placeholders::_1,std::placeholders::_2));
-
-}
-
-
-int main(int argc, char **argv)
-{
-    
-    rclcpp::init(argc, argv);
-    rclcpp::executors::MultiThreadedExecutor executor;
-    // rclcpp::executors::StaticSingleThreadedExecutor executor;
-    auto nodeState    = std::make_shared<nav_follow_class>();
-    nodeState->init_control();
-    executor.add_node(nodeState);
-    executor.spin();
-    rclcpp::shutdown();
-
-    return 0;
-}

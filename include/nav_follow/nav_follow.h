@@ -33,6 +33,7 @@
 #include <pcl_conversions/pcl_conversions.h>
 #include <tf2_eigen/tf2_eigen.hpp>
 #include <std_srvs/srv/trigger.hpp>
+#include <rclcpp_lifecycle/lifecycle_node.hpp>
 #include "nav_follow_parameters.hpp"
 
 // constexpr int   LASER_SCAN_FILTER_LENGTH   = 3;
@@ -40,7 +41,7 @@ constexpr int   LASER_SCAN_FILTER_LENGTH   = 1;
 // constexpr double FILT_DIST                 = 3.0;
 // constexpr double MIN_DIST                  = 0.3;
 
-class nav_follow_class : public rclcpp::Node
+class nav_follow_class : public rclcpp_lifecycle::LifecycleNode
 {
     private:
 
@@ -91,7 +92,6 @@ class nav_follow_class : public rclcpp::Node
         
         // std::string _path = ament_index_cpp::get_package_share_directory("nav_follow");
         int siz_s,siz_m;
-        bool _icp_controlling = false;
 
         //TF
         std::shared_ptr<tf2_ros::TransformListener> _tf_listener{nullptr};
@@ -107,6 +107,9 @@ class nav_follow_class : public rclcpp::Node
         std::thread _th_follow;
         std::thread _th_pcl;
 
+        bool _tf_controlling = false;
+        bool _icp_controlling = false;
+
 
         //PID
         std::unique_ptr<control_toolbox::PidROS>  _x_pid;
@@ -119,6 +122,13 @@ class nav_follow_class : public rclcpp::Node
         std::unique_ptr<rclcpp::Rate> _rate_tf;
         std::unique_ptr<rclcpp::Rate> _rate_follow;
 
+        //LIFECYCLE
+        rclcpp_lifecycle::node_interfaces::LifecycleNodeInterface::CallbackReturn on_configure(const rclcpp_lifecycle::State &);
+        rclcpp_lifecycle::node_interfaces::LifecycleNodeInterface::CallbackReturn on_activate(const rclcpp_lifecycle::State & state);
+        rclcpp_lifecycle::node_interfaces::LifecycleNodeInterface::CallbackReturn on_deactivate(const rclcpp_lifecycle::State & state);
+        rclcpp_lifecycle::node_interfaces::LifecycleNodeInterface::CallbackReturn on_cleanup(const rclcpp_lifecycle::State &);
+        rclcpp_lifecycle::node_interfaces::LifecycleNodeInterface::CallbackReturn on_shutdown(const rclcpp_lifecycle::State & state);
+  
         
 
     public:
