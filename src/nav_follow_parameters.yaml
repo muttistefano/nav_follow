@@ -56,6 +56,12 @@ nav_follow:
     read_only: true,
     description: "Enable the feedforward control using the master cmd_vel transported on the follower frame ",
   }
+  cmd_vel_topic_master: {
+    type: string,
+    default_value: "",
+    read_only: true,
+    description: "cmd_vel_topic_master for the feedforward control ",
+  }
   enable_icp: {
     type: bool,
     default_value: False,

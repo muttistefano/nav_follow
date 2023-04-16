@@ -38,7 +38,8 @@
                 "/opt/ros/rolling/include/service_msgs",
                 "/opt/ros/rolling/include/control_toolbox",
                 "${workspaceFolder}/include",
-                "/opt/ros/rolling/include/rclcpp_lifecycle"
+                "/opt/ros/rolling/include/rclcpp_lifecycle",
+                "/opt/ros/rolling/include/lifecycle_msgs"
             ],
             "defines": [],
             "compilerPath": "/usr/bin/gcc",

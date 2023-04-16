@@ -24,6 +24,7 @@ rclcpp_lifecycle::LifecycleNode("nav_follow")
 rclcpp_lifecycle::node_interfaces::LifecycleNodeInterface::CallbackReturn 
 nav_follow_class::on_configure(const rclcpp_lifecycle::State &)
 {
+    RCLCPP_INFO(this->get_logger(), "Configuring");
     param_listener_ = std::make_shared<nav_follow::ParamListener>(this->shared_from_this());
     if (!param_listener_)
     {
@@ -38,20 +39,28 @@ nav_follow_class::on_configure(const rclcpp_lifecycle::State &)
         return rclcpp_lifecycle::node_interfaces::LifecycleNodeInterface::CallbackReturn::ERROR;
     }
 
+    
+    _th_tf     = std::thread(&nav_follow_class::current_tf_thread, this);
+
     if(_params.enable_tf  )
     {
-        _th_tf     = std::thread(&nav_follow_class::current_tf_thread, this);
         this->get_tf_goal();
+    }
+
+    if(_params.enable_vel_feedforward  )
+    {
+        _cmd_vel_feed = this->create_subscription<geometry_msgs::msg::Twist>(
+            _params.cmd_vel_topic_master, rclcpp::SensorDataQoS(), std::bind(&nav_follow_class::cmd_vel_feedforward, this, std::placeholders::_1));
     }
 
     if(_params.enable_icp  )
     {
         RCLCPP_WARN(this->get_logger(), "ICP CONTROL IS HIGHLY UNSTABLE AND EXPERIMENTAL!!! USE IT CAREFULLY");   
 
-        _sub_master = this->create_subscription<sensor_msgs::msg::LaserScan>(
+        _sub_master_laser = this->create_subscription<sensor_msgs::msg::LaserScan>(
             _params.laser_scan_master, rclcpp::SensorDataQoS(), std::bind(&nav_follow_class::LasCallback_master, this, std::placeholders::_1));
 
-        _sub_slave = this->create_subscription<sensor_msgs::msg::LaserScan>(
+        _sub_slave_laser = this->create_subscription<sensor_msgs::msg::LaserScan>(
             _params.laser_scan_slave, rclcpp::SensorDataQoS(), std::bind(&nav_follow_class::LasCallback_slave, this, std::placeholders::_1));
 
         _pcl_master_pub = this->create_publisher<sensor_msgs::msg::PointCloud2>("master_pcl", 1);
@@ -105,7 +114,7 @@ nav_follow_class::on_activate(const rclcpp_lifecycle::State &)
         this->_icp_controlling = true;
         _th_pcl    = std::thread(&nav_follow_class::current_pcl_thread, this);
     }
-
+    return rclcpp_lifecycle::node_interfaces::LifecycleNodeInterface::CallbackReturn::SUCCESS;
 }
 
 rclcpp_lifecycle::node_interfaces::LifecycleNodeInterface::CallbackReturn 
@@ -113,6 +122,7 @@ nav_follow_class::on_deactivate(const rclcpp_lifecycle::State &)
 {
     this->_tf_controlling = false;
     this->_icp_controlling = false;
+    return rclcpp_lifecycle::node_interfaces::LifecycleNodeInterface::CallbackReturn::SUCCESS;
 }
 
 rclcpp_lifecycle::node_interfaces::LifecycleNodeInterface::CallbackReturn 
@@ -120,12 +130,13 @@ nav_follow_class::on_shutdown(const rclcpp_lifecycle::State &)
 {
     this->_tf_controlling = false;
     this->_icp_controlling = false;
+    return rclcpp_lifecycle::node_interfaces::LifecycleNodeInterface::CallbackReturn::SUCCESS;
 }
 
 rclcpp_lifecycle::node_interfaces::LifecycleNodeInterface::CallbackReturn 
 nav_follow_class::on_cleanup(const rclcpp_lifecycle::State &)
 {
-
+    return rclcpp_lifecycle::node_interfaces::LifecycleNodeInterface::CallbackReturn::SUCCESS;
 }
 
 //TODO : merge cmd vels
@@ -133,6 +144,7 @@ nav_follow_class::on_cleanup(const rclcpp_lifecycle::State &)
 //TODO : Futures to stop threads
 //TODO : Destructor in shutdown ???
 //TODO : Fill cleanup
+//TODO : Control QOS
 
 int main(int argc, char **argv)
 {

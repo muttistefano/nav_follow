@@ -27,7 +27,7 @@ def generate_launch_description():
                 package='nav_follow',
                 executable='nav_follow_node',
                 namespace="sweepee_2",
-                # output='screen',
+                output='screen',
                 # prefix=['xterm -e gdb -ex run --args'],
                 # prefix=['valgrind --tool=memcheck --leak-check=yes --show-reachable=yes '],
                 arguments=['--ros-args', '--log-level', log_level],
@@ -44,9 +44,11 @@ def generate_launch_description():
                             {"icp_RANSACOutlierRejectionThreshold": 1.5},
                             {"icp_MaxCorrespondenceDistance"      : 100.0},
                             {"use_sim_time"                       : True},                
-                            {"enable_tf"                          : True},
-                            {"enable_vel_feedforward"             : False},
+                            {"enable_tf"                          : False},
+                            {"enable_vel_feedforward"             : True},
                             {"enable_icp"                         : False}, 
+                            {"cmd_vel_topic_master"               : "/sweepee_1/cmd_vel"},
+                            {"autostart"                          : True},
 
                             config])]
 

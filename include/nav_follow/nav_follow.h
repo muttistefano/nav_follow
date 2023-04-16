@@ -1,3 +1,6 @@
+#ifndef NAV_FOLLOW_HPP
+#define NAV_FOLLOW_HPP
+
 #include "rclcpp/rclcpp.hpp"
 #include <math.h> 
 #include <sensor_msgs/msg/laser_scan.hpp>
@@ -55,8 +58,9 @@ class nav_follow_class : public rclcpp_lifecycle::LifecycleNode
 
         //ROS
 
-        rclcpp::Subscription<sensor_msgs::msg::LaserScan>::SharedPtr        _sub_master;
-        rclcpp::Subscription<sensor_msgs::msg::LaserScan>::SharedPtr        _sub_slave;
+        rclcpp::Subscription<sensor_msgs::msg::LaserScan>::SharedPtr        _sub_master_laser;
+        rclcpp::Subscription<sensor_msgs::msg::LaserScan>::SharedPtr        _sub_slave_laser;
+        rclcpp::Subscription<geometry_msgs::msg::Twist>::SharedPtr          _cmd_vel_feed;
 
         rclcpp::Publisher<geometry_msgs::msg::WrenchStamped>::SharedPtr     _vis_pub;
         rclcpp::Publisher<geometry_msgs::msg::Twist>::SharedPtr             _cmd_vel;
@@ -137,6 +141,7 @@ class nav_follow_class : public rclcpp_lifecycle::LifecycleNode
 
         void LasCallback_master(const sensor_msgs::msg::LaserScan::ConstSharedPtr& msg);
         void LasCallback_slave(const sensor_msgs::msg::LaserScan::ConstSharedPtr& msg);
+        void cmd_vel_feedforward(const geometry_msgs::msg::Twist::ConstSharedPtr& msg);
         void current_tf_thread();
         void get_tf_goal();
         void tf_follow_thread();
@@ -153,3 +158,7 @@ class nav_follow_class : public rclcpp_lifecycle::LifecycleNode
           std::shared_ptr<std_srvs::srv::Trigger::Response>      response);
 
 };
+
+
+
+#endif

@@ -91,3 +91,59 @@ void nav_follow_class::tf_follow_thread()
         _rate_follow->sleep();
     }
 }
+
+  inline Eigen::Matrix3d Skew(Eigen::Vector3d vec) {
+    return (Eigen::Matrix3d() << 
+        0.0, -vec[2], vec[1],
+        vec[2], 0.0, -vec[0],
+        -vec[1], vec[0], 0.0).finished();
+  }
+
+  inline Eigen::Matrix3d Frame_to_Eigen(const double  vec[9]) {
+    return (Eigen::Matrix3d() << 
+        vec[0], vec[1], vec[2],
+        vec[3], vec[4], vec[5],
+        vec[6], vec[7], vec[8]).finished();
+  }
+
+  void Adjoint_util(Eigen::Matrix<double,6,6> & mat, Eigen::Affine3d frame)
+  {
+    mat.topLeftCorner(3,3)     = frame.linear();
+    mat.bottomRightCorner(3,3) = frame.linear();
+    mat.topRightCorner(3,3)    = Skew(frame.translation()) * frame.linear();
+  }
+
+void nav_follow_class::cmd_vel_feedforward(const geometry_msgs::msg::Twist::ConstSharedPtr& msg)
+{
+    tf2::Stamped<tf2::Transform> stamped_transform_now;
+    geometry_msgs::msg::Twist vel_cmd;
+    Eigen::Affine3d tmp_tf;
+
+    {
+        std::scoped_lock<std::mutex> guard_tf(_tf_mutex);
+        // tf2::fromMsg(_tf_master_slave, stamped_transform_now);
+        tmp_tf = tf2::transformToEigen(_tf_master_slave);
+    }  
+
+    // double r{}, p{}, y{};
+    // tf2::Matrix3x3 m(stamped_transform_now.getRotation());
+    // m.getRPY(r, p, y);
+
+    // Eigen::Matrix4f tmp_tf = tf2::transformToEigen(stamped_transform_now).matrix().cast<float>();
+    
+    
+    Eigen::Matrix<double,6,6>  mat = Eigen::Matrix<double,6,6>::Zero();
+    Adjoint_util(mat, tmp_tf);
+    std::cout << mat << "\n" <<std::flush ;
+    Eigen::Matrix<double,6,1> tw_in;
+    tw_in << msg->linear.x,msg->linear.y,msg->linear.z,msg->angular.x,msg->angular.y,msg->angular.z;
+
+    auto tx_out = mat * tw_in;
+    std::cout << tx_out << "\n" <<std::flush ;
+
+    vel_cmd.linear.x  = tx_out[0];
+    vel_cmd.linear.y  = tx_out[1];
+    vel_cmd.angular.z = tx_out[5];
+    _cmd_vel->publish(vel_cmd);
+
+}

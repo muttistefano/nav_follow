@@ -47,9 +47,9 @@ generate_parameter_library(
 
 
 add_executable(${PROJECT_NAME}_node 
+src/nav_follow_node.cpp
 src/nav_follow_tf.cpp
 src/nav_follow_icp.cpp
-src/nav_follow_node.cpp
 )
 ament_target_dependencies(${PROJECT_NAME}_node ${dependencies})
 
