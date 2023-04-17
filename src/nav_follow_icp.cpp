@@ -316,10 +316,16 @@ void nav_follow_class::current_pcl_thread()
             w_cmd = _w_pid_icp->computeCommand(w_err,dt);
             
             RCLCPP_INFO_STREAM_THROTTLE(this->get_logger(),*this->get_clock(),1000,"cmd: " << x_cmd << " " << y_cmd << " " << w_cmd << " " << "\n");
-            vel_cmd.linear.x  = x_cmd;
-            vel_cmd.linear.y  = y_cmd;
-            vel_cmd.angular.z = w_cmd;
-            _cmd_vel->publish(vel_cmd);
+            // vel_cmd.linear.x  = x_cmd;
+            // vel_cmd.linear.y  = y_cmd;
+            // vel_cmd.angular.z = w_cmd;
+            // _cmd_vel->publish(vel_cmd);
+            {
+                std::scoped_lock<std::mutex> guard_tf(_cmd_vel_mutex_icp);
+                _cmd_vel_icp_msg.linear.x  = x_cmd;
+                _cmd_vel_icp_msg.linear.y  = y_cmd;
+                _cmd_vel_icp_msg.angular.z = w_cmd;
+            }  
         }
         
         _rt.sleep();

@@ -36,6 +36,7 @@
 #include <pcl_conversions/pcl_conversions.h>
 #include <tf2_eigen/tf2_eigen.hpp>
 #include <std_srvs/srv/trigger.hpp>
+#include "realtime_tools/realtime_publisher.h"
 #include <rclcpp_lifecycle/lifecycle_node.hpp>
 #include "nav_follow_parameters.hpp"
 
@@ -48,8 +49,13 @@ class nav_follow_class : public rclcpp_lifecycle::LifecycleNode
 {
     private:
 
-        std::mutex   _lock_pcl_master,_lock_pcl_slave;
-        std::mutex   _tf_mutex, _icp_mutex;
+        std::mutex   _lock_pcl_slave;
+        std::mutex   _lock_pcl_master;
+        std::mutex   _icp_mutex;
+        std::mutex   _tf_mutex;
+        std::mutex   _cmd_vel_mutex_tf;
+        std::mutex   _cmd_vel_mutex_feed;
+        std::mutex   _cmd_vel_mutex_icp;
 
         //PARAMS
         
@@ -63,7 +69,9 @@ class nav_follow_class : public rclcpp_lifecycle::LifecycleNode
         rclcpp::Subscription<geometry_msgs::msg::Twist>::SharedPtr          _cmd_vel_feed;
 
         rclcpp::Publisher<geometry_msgs::msg::WrenchStamped>::SharedPtr     _vis_pub;
-        rclcpp::Publisher<geometry_msgs::msg::Twist>::SharedPtr             _cmd_vel;
+        rclcpp::Publisher<geometry_msgs::msg::Twist>::SharedPtr             _cmd_vel_pub_wrapped;
+        std::unique_ptr<realtime_tools::RealtimePublisher<geometry_msgs::msg::Twist>> _cmd_vel_pub_rt;
+
             
         rclcpp::Publisher<sensor_msgs::msg::PointCloud2>::SharedPtr         _pcl_master_pub;
         rclcpp::Publisher<sensor_msgs::msg::PointCloud2>::SharedPtr         _pcl_slave_pub;
@@ -94,7 +102,6 @@ class nav_follow_class : public rclcpp_lifecycle::LifecycleNode
         tf2::Stamped<tf2::Transform> _tf_las_master_to_base;
         tf2::Stamped<tf2::Transform> _tf_las_slave_to_base;
         
-        // std::string _path = ament_index_cpp::get_package_share_directory("nav_follow");
         int siz_s,siz_m;
 
         //TF
@@ -107,10 +114,18 @@ class nav_follow_class : public rclcpp_lifecycle::LifecycleNode
         geometry_msgs::msg::TransformStamped _tf_laser_base_slave;
         
 
+        // THREADS
         std::thread _th_tf;
         std::thread _th_follow;
         std::thread _th_pcl;
+        std::thread _th_cmd_vel;
 
+        // CMD VELS
+        geometry_msgs::msg::Twist _cmd_vel_tf_msg   = geometry_msgs::msg::Twist();
+        geometry_msgs::msg::Twist _cmd_vel_feed_msg = geometry_msgs::msg::Twist();
+        geometry_msgs::msg::Twist _cmd_vel_icp_msg  = geometry_msgs::msg::Twist();
+
+        // CONTROL BOOLS
         bool _tf_controlling = false;
         bool _icp_controlling = false;
 
@@ -122,8 +137,10 @@ class nav_follow_class : public rclcpp_lifecycle::LifecycleNode
         std::unique_ptr<control_toolbox::PidROS>  _x_pid_icp;
         std::unique_ptr<control_toolbox::PidROS>  _y_pid_icp;
         std::unique_ptr<control_toolbox::PidROS>  _w_pid_icp;
+
         //RATE
         std::unique_ptr<rclcpp::Rate> _rate_tf;
+        std::unique_ptr<rclcpp::Rate> _rate_cmd_vel;
         std::unique_ptr<rclcpp::Rate> _rate_follow;
 
         //LIFECYCLE
@@ -143,6 +160,7 @@ class nav_follow_class : public rclcpp_lifecycle::LifecycleNode
         void LasCallback_slave(const sensor_msgs::msg::LaserScan::ConstSharedPtr& msg);
         void cmd_vel_feedforward(const geometry_msgs::msg::Twist::ConstSharedPtr& msg);
         void current_tf_thread();
+        void cmd_vel_thread();
         void get_tf_goal();
         void tf_follow_thread();
         void init_control();

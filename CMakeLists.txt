@@ -19,12 +19,18 @@ find_package(pcl_conversions REQUIRED)
 find_package(std_srvs REQUIRED)
 find_package(generate_parameter_library REQUIRED)
 find_package(rclcpp_lifecycle REQUIRED)
+find_package(realtime_tools REQUIRED)
 
 include_directories(
   include
   ${EIGEN3_INCLUDE_DIR}
   ${PCL_INCLUDE_DIRS}
 )
+
+if(BUILD_TESTING)
+  find_package(ament_lint_auto REQUIRED)
+  ament_lint_auto_find_test_dependencies()
+endif()
 
 set(dependencies
   rclcpp
@@ -33,6 +39,7 @@ set(dependencies
   sensor_msgs
   tf2_geometry_msgs
   control_toolbox
+  realtime_tools
   tf2_eigen
   tf2_ros
   pcl_conversions

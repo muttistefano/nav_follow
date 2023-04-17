@@ -44,7 +44,7 @@ def generate_launch_description():
                             {"icp_RANSACOutlierRejectionThreshold": 1.5},
                             {"icp_MaxCorrespondenceDistance"      : 100.0},
                             {"use_sim_time"                       : True},                
-                            {"enable_tf"                          : False},
+                            {"enable_tf"                          : True},
                             {"enable_vel_feedforward"             : True},
                             {"enable_icp"                         : False}, 
                             {"cmd_vel_topic_master"               : "/sweepee_1/cmd_vel"},

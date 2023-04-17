@@ -16,8 +16,9 @@ rclcpp_lifecycle::LifecycleNode("nav_follow")
     _pcl_buffer_master = boost::circular_buffer<sensor_msgs::msg::PointCloud> (LASER_SCAN_FILTER_LENGTH);
     _pcl_buffer_slave  = boost::circular_buffer<sensor_msgs::msg::PointCloud> (LASER_SCAN_FILTER_LENGTH);
 
-    _rate_tf     = std::make_unique<rclcpp::Rate>(20);
-    _rate_follow = std::make_unique<rclcpp::Rate>(20);
+    _rate_tf      = std::make_unique<rclcpp::Rate>(20);
+    _rate_follow  = std::make_unique<rclcpp::Rate>(20);
+    _rate_cmd_vel = std::make_unique<rclcpp::Rate>(30);
 
 }
 
@@ -40,7 +41,8 @@ nav_follow_class::on_configure(const rclcpp_lifecycle::State &)
     }
 
     
-    _th_tf     = std::thread(&nav_follow_class::current_tf_thread, this);
+    _th_tf      = std::thread(&nav_follow_class::current_tf_thread, this);
+    
 
     if(_params.enable_tf  )
     {
@@ -74,11 +76,17 @@ nav_follow_class::on_configure(const rclcpp_lifecycle::State &)
         this->get_tf_laser_base_master();
         this->get_tf_laser_base_slave();
 
+
     }
 
 
-    _vis_pub     = this->create_publisher<geometry_msgs::msg::WrenchStamped>("wrench", 1);
-    _cmd_vel     = this->create_publisher<geometry_msgs::msg::Twist>(_params.cmd_vel_topic, 1);
+    _vis_pub              = this->create_publisher<geometry_msgs::msg::WrenchStamped>(
+        "wrench", 1);
+    _cmd_vel_pub_wrapped  = this->create_publisher<geometry_msgs::msg::Twist>(
+        _params.cmd_vel_topic, 1);
+    _cmd_vel_pub_rt       = std::make_unique<realtime_tools::RealtimePublisher<geometry_msgs::msg::Twist>>(_cmd_vel_pub_wrapped);
+
+    RCLCPP_INFO(this->get_logger(), "Configuring Done");
 
     return rclcpp_lifecycle::node_interfaces::LifecycleNodeInterface::CallbackReturn::SUCCESS;
 
@@ -87,6 +95,7 @@ nav_follow_class::on_configure(const rclcpp_lifecycle::State &)
 rclcpp_lifecycle::node_interfaces::LifecycleNodeInterface::CallbackReturn 
 nav_follow_class::on_activate(const rclcpp_lifecycle::State &)
 {
+    RCLCPP_INFO(this->get_logger(), "Activating");
 
     if(_params.enable_tf  )
     {
@@ -114,37 +123,77 @@ nav_follow_class::on_activate(const rclcpp_lifecycle::State &)
         this->_icp_controlling = true;
         _th_pcl    = std::thread(&nav_follow_class::current_pcl_thread, this);
     }
+    _th_cmd_vel = std::thread(&nav_follow_class::cmd_vel_thread, this);
+    RCLCPP_INFO(this->get_logger(), "Activating Done");
     return rclcpp_lifecycle::node_interfaces::LifecycleNodeInterface::CallbackReturn::SUCCESS;
 }
 
 rclcpp_lifecycle::node_interfaces::LifecycleNodeInterface::CallbackReturn 
 nav_follow_class::on_deactivate(const rclcpp_lifecycle::State &)
 {
+    RCLCPP_INFO(this->get_logger(), "Deactivating");
     this->_tf_controlling = false;
     this->_icp_controlling = false;
+    RCLCPP_INFO(this->get_logger(), "Deactivating Done");
     return rclcpp_lifecycle::node_interfaces::LifecycleNodeInterface::CallbackReturn::SUCCESS;
 }
 
 rclcpp_lifecycle::node_interfaces::LifecycleNodeInterface::CallbackReturn 
 nav_follow_class::on_shutdown(const rclcpp_lifecycle::State &)
 {
+    RCLCPP_INFO(this->get_logger(), "Shutdown");
     this->_tf_controlling = false;
     this->_icp_controlling = false;
+    RCLCPP_INFO(this->get_logger(), "Shutdown Done");
     return rclcpp_lifecycle::node_interfaces::LifecycleNodeInterface::CallbackReturn::SUCCESS;
 }
 
 rclcpp_lifecycle::node_interfaces::LifecycleNodeInterface::CallbackReturn 
 nav_follow_class::on_cleanup(const rclcpp_lifecycle::State &)
 {
+    RCLCPP_INFO(this->get_logger(), "Cleanup");
+    RCLCPP_INFO(this->get_logger(), "Cleanup Done");
     return rclcpp_lifecycle::node_interfaces::LifecycleNodeInterface::CallbackReturn::SUCCESS;
 }
 
-//TODO : merge cmd vels
+void nav_follow_class::cmd_vel_thread()
+{
+    RCLCPP_INFO(this->get_logger(), "Controlling the follower");
+    while(rclcpp::ok() && (this->_tf_controlling || this->_icp_controlling))
+    {
+        if (_cmd_vel_pub_rt->trylock())
+        {
+            auto & msg = _cmd_vel_pub_rt->msg_;
+            
+            msg.linear.z  = 0.0;
+            msg.angular.x = 0.0;
+            msg.angular.y = 0.0;
+
+            {
+                std::scoped_lock<std::mutex> guard_tf1(_cmd_vel_mutex_tf);
+                std::scoped_lock<std::mutex> guard_tf2(_cmd_vel_mutex_feed);
+                std::scoped_lock<std::mutex> guard_tf3(_cmd_vel_mutex_icp);
+                msg.linear.x  = _cmd_vel_tf_msg.linear.x  + _cmd_vel_feed_msg.linear.x  + _cmd_vel_icp_msg.linear.x  ;
+                msg.linear.y  = _cmd_vel_tf_msg.linear.y  + _cmd_vel_feed_msg.linear.y  + _cmd_vel_icp_msg.linear.y  ;
+                msg.angular.z = _cmd_vel_tf_msg.angular.z + _cmd_vel_feed_msg.angular.z + _cmd_vel_icp_msg.angular.z ;
+            }  
+            std::cout << msg.linear.x << std::flush;
+            _cmd_vel_pub_rt->unlockAndPublish();
+        }
+        _rate_cmd_vel->sleep();
+    }
+    RCLCPP_INFO(this->get_logger(), "Stopped controlling the follower");
+}
+
+//TODO : merge cmd vels(DONE, no test icp)
 //TODO : service for tf save,start and stop
 //TODO : Futures to stop threads
 //TODO : Destructor in shutdown ???
 //TODO : Fill cleanup
 //TODO : Control QOS
+//TODO : Node composition
+//TODO : ICP test with filter > 1, threshold ?
+
 
 int main(int argc, char **argv)
 {
@@ -160,3 +209,4 @@ int main(int argc, char **argv)
 
     return 0;
 }
+
