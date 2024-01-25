@@ -18,14 +18,14 @@ def generate_launch_description():
         description='log level'))
 
     config = os.path.join(
-        get_package_share_directory('icp_nav_follow'),
+        get_package_share_directory('nav_follow'),
         'config',
         'pid.yaml'
         )
 
     node1 = [Node(
-                package='icp_nav_follow',
-                executable='icp_nav_follow_node',
+                package='nav_follow',
+                executable='nav_follow_node',
                 output='screen',
                 # prefix=['xterm -e gdb -ex run --args'],
                 # prefix=['valgrind --tool=memcheck --leak-check=yes --show-reachable=yes '],
@@ -42,6 +42,12 @@ def generate_launch_description():
                             {"icp_EuclideanFitnessEpsilon"        : 0.00001},
                             {"icp_RANSACOutlierRejectionThreshold": 1.5},
                             {"icp_MaxCorrespondenceDistance"      : 100.0},
+                            {"use_sim_time"                       : False},                
+                            {"enable_tf"                          : True},
+                            {"enable_vel_feedforward"             : True},
+                            {"enable_icp"                         : False}, 
+                            {"cmd_vel_topic_master"               : "/omron/cmd_vel"},
+                            {"autostart"                          : True},
                             config])]
 
     return LaunchDescription(declared_arguments + node1)

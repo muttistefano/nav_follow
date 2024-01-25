@@ -39,7 +39,9 @@
                 "/opt/ros/rolling/include/control_toolbox",
                 "${workspaceFolder}/include",
                 "/opt/ros/rolling/include/rclcpp_lifecycle",
-                "/opt/ros/rolling/include/lifecycle_msgs"
+                "/opt/ros/rolling/include/lifecycle_msgs",
+                "/opt/ros/rolling/include/rcl_lifecycle",
+                "/opt/ros/rolling/include/rosidl_dynamic_typesupport"
             ],
             "defines": [],
             "compilerPath": "/usr/bin/gcc",

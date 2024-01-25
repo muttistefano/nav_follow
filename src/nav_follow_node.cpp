@@ -132,6 +132,23 @@ rclcpp_lifecycle::node_interfaces::LifecycleNodeInterface::CallbackReturn
 nav_follow_class::on_deactivate(const rclcpp_lifecycle::State &)
 {
     RCLCPP_INFO(this->get_logger(), "Deactivating");
+    _th_cmd_vel.join();
+    if (_cmd_vel_pub_rt->trylock())
+    {
+        auto & msg = _cmd_vel_pub_rt->msg_;
+        
+        msg.linear.z  = 0.0;
+        msg.angular.x = 0.0;
+        msg.angular.y = 0.0;
+
+        
+        msg.linear.x  = 0.0 ;
+        msg.linear.y  = 0.0 ;
+        msg.angular.z = 0.0 ;
+        
+        // std::cout << msg.linear.x << std::flush;
+        _cmd_vel_pub_rt->unlockAndPublish();
+    }
     this->_tf_controlling = false;
     this->_icp_controlling = false;
     RCLCPP_INFO(this->get_logger(), "Deactivating Done");
@@ -177,7 +194,7 @@ void nav_follow_class::cmd_vel_thread()
                 msg.linear.y  = _cmd_vel_tf_msg.linear.y  + _cmd_vel_feed_msg.linear.y  + _cmd_vel_icp_msg.linear.y  ;
                 msg.angular.z = _cmd_vel_tf_msg.angular.z + _cmd_vel_feed_msg.angular.z + _cmd_vel_icp_msg.angular.z ;
             }  
-            std::cout << msg.linear.x << std::flush;
+            // std::cout << msg.linear.x << std::flush;
             _cmd_vel_pub_rt->unlockAndPublish();
         }
         _rate_cmd_vel->sleep();
